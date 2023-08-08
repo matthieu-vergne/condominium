@@ -1,0 +1,59 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>fr.matthieu-vergne</groupId>
+	<artifactId>condominium</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<packaging>jar</packaging>
+	<name>Condominium Support</name>
+	<description>Various support features for managing a condominium.</description>
+	<inceptionYear>2023</inceptionYear>
+	<url>https://github.com/matthieu-vergne/condominium</url>
+
+	<scm>
+		<connection>scm:git:git://github.com/matthieu-vergne/condominium.git</connection>
+		<developerConnection>scm:git:githubMatthieu:matthieu-vergne/condominium.git</developerConnection>
+		<url>scm:git:git://github.com/matthieu-vergne/condominium.git</url>
+		<tag>HEAD</tag>
+	</scm>
+
+	<issueManagement>
+		<system>GitHub</system>
+		<url>https://github.com/matthieu-vergne/condominium/issues/</url>
+	</issueManagement>
+
+	<licenses>
+		<license>
+			<name>CC0</name>
+			<url>http://creativecommons.org/publicdomain/zero/1.0/</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+
+	<developers>
+		<developer>
+			<name>Matthieu Vergne</name>
+			<email>matthieu_DOT_vergne@(nospam)gmail_DOT_com</email>
+			<url>https://github.com/matthieu-vergne</url>
+		</developer>
+	</developers>
+
+	<properties>
+		<maven.compiler.release>17</maven.compiler.release>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+	</properties>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.8.0</version>
+			</plugin>
+		</plugins>
+	</build>
+
+	<dependencies>
+	</dependencies>
+</project>
