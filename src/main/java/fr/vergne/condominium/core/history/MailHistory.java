@@ -58,8 +58,11 @@ public interface MailHistory {
 			private final Supplier<Collection<Profile>> profilesSupplier;
 			private final UnaryOperator<Collection<Profile>> profilesReducer;
 			private final String newline = "\\n";// Escaped to be interpreted by PlantUml
+			private final Consumer<String> logger;
 
-			public WithPlantUml(ProfilesConfiguration confProfiles) {
+			public WithPlantUml(ProfilesConfiguration confProfiles, Consumer<String> logger) {
+				this.logger = logger;
+
 				Map<String, Profile> emailProfiles = new HashMap<>();
 				confProfiles.getIndividuals().stream().forEach(confProfile -> {
 					Set<String> names = new LinkedHashSet<>(confProfile.getNames());
@@ -97,13 +100,13 @@ public interface MailHistory {
 
 					@Override
 					public void writeSvg(Path svgPath) {
-						System.out.println("Prepare profiles");
+						logger.accept("Prepare profiles");
 						Collection<Profile> profiles = createProfiles(mails);
 
-						System.out.println("Redact script");
+						logger.accept("Redact script");
 						String script = createPlantUml(profiles, mails);
 
-						System.out.println("Generate SVG");
+						logger.accept("Generate SVG");
 						SourceStringReader reader = new SourceStringReader(script);
 						FileOutputStream graphStream;
 						try {
@@ -118,7 +121,7 @@ public interface MailHistory {
 						} catch (IOException cause) {
 							throw new RuntimeException("Cannot write SVG", cause);
 						}
-						System.out.println(desc);
+						logger.accept(desc);
 					}
 				};
 			}

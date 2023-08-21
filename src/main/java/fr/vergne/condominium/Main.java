@@ -17,6 +17,7 @@ import fr.vergne.condominium.core.parser.yaml.PlotConfiguration;
 import fr.vergne.condominium.core.parser.yaml.ProfilesConfiguration;
 
 public class Main {
+	private static final Consumer<String> logger = System.out::println;
 
 	public static void main(String[] args) throws IOException {
 		Path folderPath = Paths.get(args[0]);
@@ -36,40 +37,40 @@ public class Main {
 				.filter(on(confMailCleaning))//
 				.toList();
 
-		System.out.println("=================");
+		logger.accept("=================");
 
-		System.out.println("Read profiles conf");
+		logger.accept("Read profiles conf");
 		ProfilesConfiguration confProfiles = ProfilesConfiguration.parser().apply(confProfilesPath);
 
-		System.out.println("=================");
+		logger.accept("=================");
 		{
 			// TODO Filter on mail predicate
-			System.out.println("Create mail history");
-			MailHistory.Factory mailHistoryFactory = new MailHistory.Factory.WithPlantUml(confProfiles);
+			logger.accept("Create mail history");
+			MailHistory.Factory mailHistoryFactory = new MailHistory.Factory.WithPlantUml(confProfiles, logger);
 			MailHistory mailHistory = mailHistoryFactory.create(mails);
 			mailHistory.writeSvg(historyPath);
-			System.out.println("Done");
+			logger.accept("Done");
 		}
 
-		System.out.println("=================");
+		logger.accept("=================");
 		int diagramWidth = 1000;
 		int diagramHeightPerPlot = 250;
 		Diagram.Factory diagramFactory = new Diagram.Factory.WithJFreeChart(confProfiles.getGroups());
 		{
-			System.out.println("Read CS plot conf");
+			logger.accept("Read CS plot conf");
 			PlotConfiguration confPlotCs = PlotConfiguration.parser().apply(confPlotCsPath);
-			System.out.println("Create plot");
+			logger.accept("Create plot");
 			Diagram diagram = diagramFactory.ofSendReceive(confPlotCs).createDiagram(mails);
 			diagram.writePng(plotCsPath, diagramWidth, diagramHeightPerPlot);
-			System.out.println("Done");
+			logger.accept("Done");
 		}
 		{
-			System.out.println("Read syndic plot conf");
+			logger.accept("Read syndic plot conf");
 			PlotConfiguration confPlotSyndic = PlotConfiguration.parser().apply(confPlotSyndicPath);
-			System.out.println("Create plot");
+			logger.accept("Create plot");
 			Diagram diagram = diagramFactory.ofSendReceive(confPlotSyndic).createDiagram(mails);
 			diagram.writePng(plotSyndicPath, diagramWidth, diagramHeightPerPlot);
-			System.out.println("Done");
+			logger.accept("Done");
 		}
 	}
 
@@ -77,7 +78,7 @@ public class Main {
 		int[] count = { 0 };
 		return mail -> {
 			++count[0];
-			System.out.println(count[0] + "> " + mail.lines().get(0));
+			logger.accept(count[0] + "> " + mail.lines().get(0));
 		};
 	}
 
