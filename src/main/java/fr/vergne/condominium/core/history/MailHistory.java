@@ -57,6 +57,7 @@ public interface MailHistory {
 			private final Consumer<Mail.Address> profilesFeeder;
 			private final Supplier<Collection<Profile>> profilesSupplier;
 			private UnaryOperator<Collection<Profile>> profilesReducer;
+			private final String newline = "\\n";// Escaped to be interpreted by PlantUml
 
 			public WithPlantUml(ProfilesConfiguration confProfiles) {
 				Map<String, Profile> emailProfiles = new HashMap<>();
@@ -214,8 +215,6 @@ public interface MailHistory {
 									.findFirst().map(Stream::of).orElse(Stream.empty());
 							Stream<String> emailsStream = actor.profile().emails().stream()//
 									.map(String::toLowerCase).distinct().sorted();
-							// TODO Factor newline
-							String newline = "\\n";// Escaped to be interpreted by PlantUml
 							String addressesStr = Stream.concat(nameStream, emailsStream).collect(joining(newline));
 
 							String description = activityStr + newline + addressesStr;
@@ -241,8 +240,6 @@ public interface MailHistory {
 				UnaryOperator<String> subjectAdapter = subject -> {
 					return subject.substring(0, Math.min(subjectLengthLimit, subject.length()));
 				};
-				// TODO Factor newline
-				String newline = "\\n";// Escaped to be interpreted by PlantUml
 				mails.stream()//
 						.sorted(comparing(Mail::receivedDate))//
 						.forEach(mail -> {
