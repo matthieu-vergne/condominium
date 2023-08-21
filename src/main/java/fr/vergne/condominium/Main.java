@@ -1,6 +1,5 @@
 package fr.vergne.condominium;
 
-import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -8,9 +7,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-import javax.imageio.ImageIO;
-
-import fr.vergne.condominium.core.diagram.DiagramFactory;
+import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Mail;
@@ -57,22 +54,21 @@ public class Main {
 		System.out.println("=================");
 		int diagramWidth = 1000;
 		int diagramHeightPerPlot = 250;
-		DiagramFactory diagramFactory = new DiagramFactory(confProfiles.getGroups(), diagramWidth,
-				diagramHeightPerPlot);
+		Diagram.Factory diagramFactory = new Diagram.Factory.WithJFreeChart(confProfiles.getGroups());
 		{
 			System.out.println("Read CS plot conf");
 			PlotConfiguration confPlotCs = PlotConfiguration.parser().apply(confPlotCsPath);
 			System.out.println("Create plot");
-			BufferedImage plotCs = diagramFactory.createSendReceiveDiagram(confPlotCs, mails);
-			ImageIO.write(plotCs, "PNG", plotCsPath.toFile());
+			Diagram diagram = diagramFactory.ofSendReceive(confPlotCs).createDiagram(mails);
+			diagram.writePng(plotCsPath, diagramWidth, diagramHeightPerPlot);
 			System.out.println("Done");
 		}
 		{
 			System.out.println("Read syndic plot conf");
 			PlotConfiguration confPlotSyndic = PlotConfiguration.parser().apply(confPlotSyndicPath);
 			System.out.println("Create plot");
-			BufferedImage plotSyndic = diagramFactory.createSendReceiveDiagram(confPlotSyndic, mails);
-			ImageIO.write(plotSyndic, "PNG", plotSyndicPath.toFile());
+			Diagram diagram = diagramFactory.ofSendReceive(confPlotSyndic).createDiagram(mails);
+			diagram.writePng(plotSyndicPath, diagramWidth, diagramHeightPerPlot);
 			System.out.println("Done");
 		}
 	}
