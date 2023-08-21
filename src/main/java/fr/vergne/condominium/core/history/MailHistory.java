@@ -56,7 +56,7 @@ public interface MailHistory {
 
 			private final Consumer<Mail.Address> profilesFeeder;
 			private final Supplier<Collection<Profile>> profilesSupplier;
-			private UnaryOperator<Collection<Profile>> profilesReducer;
+			private final UnaryOperator<Collection<Profile>> profilesReducer;
 			private final String newline = "\\n";// Escaped to be interpreted by PlantUml
 
 			public WithPlantUml(ProfilesConfiguration confProfiles) {
