@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BinaryOperator;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.jfree.data.xy.DefaultTableXYDataset;
@@ -19,6 +20,8 @@ import org.jfree.data.xy.XYDataset;
 import org.jfree.data.xy.XYSeries;
 
 import fr.vergne.condominium.core.mail.Mail;
+import fr.vergne.condominium.core.mail.Mail.Address;
+import fr.vergne.condominium.core.parser.yaml.Filter;
 import fr.vergne.condominium.core.parser.yaml.ProfilesConfiguration;
 import fr.vergne.condominium.core.util.Pair;
 
@@ -147,8 +150,45 @@ public interface DatasetsBuilder {
 			if (group == null) {
 				throw new IllegalStateException("No group: " + name);
 			}
-			return NamedAddressPredicate.create(name, group.getFilter().toAddressPredicate());
+			return NamedAddressPredicate.create(name, createAddressPredicate(group.getFilter()));
 		};
+	}
+
+	// TODO Generalize filter translation
+	private static Predicate<Address> createAddressPredicate(Filter filter) {
+		if (filter instanceof Filter.OrFilter typedFilter) {
+			return createAddressPredicate(typedFilter);
+		} else if (filter instanceof Filter.NameEqualsFilter typedFilter) {
+			return createAddressPredicate(typedFilter);
+		} else if (filter instanceof Filter.EmailEqualsFilter typedFilter) {
+			return createAddressPredicate(typedFilter);
+		} else if (filter instanceof Filter.EmailEndsWithFilter typedFilter) {
+			return createAddressPredicate(typedFilter);
+		} else {
+			throw new IllegalArgumentException("Unsupported filter: " + filter.getClass());
+		}
+	}
+
+	private static Predicate<Address> createAddressPredicate(Filter.OrFilter filter) {
+		return filter.getSubfilters().stream()//
+				.map(subfilter -> createAddressPredicate(subfilter))//
+				.reduce(Predicate::or)//
+				.orElse(address -> false);
+	}
+
+	private static Predicate<Address> createAddressPredicate(Filter.NameEqualsFilter filter) {
+		Predicate<String> equalName = Predicate.isEqual(filter.getName());
+		return address -> address.name().filter(equalName).isPresent();
+	}
+
+	private static Predicate<Address> createAddressPredicate(Filter.EmailEqualsFilter filter) {
+		String email = filter.getEmail();
+		return address -> address.email().equalsIgnoreCase(email);
+	}
+
+	private static Predicate<Address> createAddressPredicate(Filter.EmailEndsWithFilter filter) {
+		String emailEnd = filter.getEmailEnd().toLowerCase();
+		return address -> address.email().toLowerCase().endsWith(emailEnd);
 	}
 
 	private static ZonedDateTime middleOfWeek(ZonedDateTime dateTime) {

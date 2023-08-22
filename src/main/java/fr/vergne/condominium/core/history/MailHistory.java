@@ -41,6 +41,7 @@ import java.util.stream.Stream;
 
 import fr.vergne.condominium.core.Profile;
 import fr.vergne.condominium.core.mail.Mail;
+import fr.vergne.condominium.core.parser.yaml.Filter;
 import fr.vergne.condominium.core.parser.yaml.ProfilesConfiguration;
 import net.sourceforge.plantuml.FileFormat;
 import net.sourceforge.plantuml.FileFormatOption;
@@ -273,9 +274,50 @@ public interface MailHistory {
 				Map<String, ProfilesConfiguration.Group> groups = profilesConf.getGroups();
 				return groups.entrySet().stream().map(entry -> {
 					String name = entry.getKey();
-					Predicate<Profile> profilePredicate = entry.getValue().getFilter().toProfilePredicate();
+					Predicate<Profile> profilePredicate = createProfilePredicate(entry.getValue().getFilter());
 					return createReducerByProfile(name, profilePredicate);
 				});
+			}
+
+			// TODO Generalize filter translation
+			private static Predicate<Profile> createProfilePredicate(Filter filter) {
+				if (filter instanceof Filter.OrFilter typedFilter) {
+					return createProfilePredicate(typedFilter);
+				} else if (filter instanceof Filter.NameEqualsFilter typedFilter) {
+					return createProfilePredicate(typedFilter);
+				} else if (filter instanceof Filter.EmailEqualsFilter typedFilter) {
+					return createProfilePredicate(typedFilter);
+				} else if (filter instanceof Filter.EmailEndsWithFilter typedFilter) {
+					return createProfilePredicate(typedFilter);
+				} else {
+					throw new IllegalArgumentException("Unsupported filter: " + filter.getClass());
+				}
+			}
+
+			private static Predicate<Profile> createProfilePredicate(Filter.OrFilter filter) {
+				return filter.getSubfilters().stream()//
+						.map(subfilter -> createProfilePredicate(subfilter))//
+						.reduce(Predicate::or)//
+						.orElse(profile -> false);
+			}
+
+			private static Predicate<Profile> createProfilePredicate(Filter.NameEqualsFilter filter) {
+				String name = filter.getName();
+				return profile -> profile.names().contains(name);
+			}
+
+			private static Predicate<Profile> createProfilePredicate(Filter.EmailEqualsFilter filter) {
+				Predicate<String> equalEmail = Predicate.isEqual(filter.getEmail().toLowerCase());
+				return profile -> profile.emails().stream()//
+						.map(String::toLowerCase)//
+						.anyMatch(equalEmail);
+			}
+
+			private static Predicate<Profile> createProfilePredicate(Filter.EmailEndsWithFilter filter) {
+				String emailEnd = filter.getEmailEnd().toLowerCase();
+				return (profile) -> profile.emails().stream()//
+						.map(String::toLowerCase)//
+						.anyMatch(email -> email.endsWith(emailEnd));
 			}
 
 			private Stream<UnaryOperator<Collection<Profile>>> createCleaningReducers() {
