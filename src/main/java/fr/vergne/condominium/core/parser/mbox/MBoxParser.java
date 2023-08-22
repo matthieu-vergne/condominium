@@ -403,7 +403,6 @@ public class MBoxParser {
 		return "()<>@,;:\\\".[]".contains(Character.toString(codePoint));
 	}
 
-	// TODO Integrate to MBox parser
 	// TODO Finish
 	// https://datatracker.ietf.org/doc/html/rfc2822#autoid-25
 	public record Address(String email, Optional<String> name) {
