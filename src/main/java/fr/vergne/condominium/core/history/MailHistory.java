@@ -59,11 +59,11 @@ public interface MailHistory {
 			private final Supplier<Collection<Profile>> profilesSupplier;
 			private final UnaryOperator<Collection<Profile>> profilesReducer;
 			private final String newline = "\\n";// Escaped to be interpreted by PlantUml
-			private final Consumer<String> logger;
+			private final Consumer<Object> logger;
 			private final Filter.PredicateFactory<Profile> filterPredicateFactory = Filter.PredicateFactory
 					.createFromCollections(Profile::names, Profile::emails);
 
-			public WithPlantUml(ProfilesConfiguration confProfiles, Consumer<String> logger) {
+			public WithPlantUml(ProfilesConfiguration confProfiles, Consumer<Object> logger) {
 				this.logger = logger;
 
 				Map<String, Profile> emailProfiles = new HashMap<>();

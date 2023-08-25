@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Spliterators;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntPredicate;
 import java.util.function.Supplier;
@@ -43,6 +44,11 @@ public class MBoxParser {
 	private final DateTimeFormatter timestampFormatter = DateTimeFormatter.ofPattern("E MMM dd HH:mm:ss Z yyyy",
 			Locale.ENGLISH);
 	private final Function<String, Address> addressParser = MBoxParser.Address.parser();
+	private final Consumer<Object> logger;
+
+	public MBoxParser(Consumer<Object> logger) {
+		this.logger = logger;
+	}
 
 	public Stream<Mail> parseMBox(Path mboxPath) {
 		Stream<String> lines;

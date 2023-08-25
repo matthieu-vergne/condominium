@@ -17,7 +17,7 @@ import fr.vergne.condominium.core.parser.yaml.PlotConfiguration;
 import fr.vergne.condominium.core.parser.yaml.ProfilesConfiguration;
 
 public class Main {
-	private static final Consumer<String> logger = System.out::println;
+	private static final Consumer<Object> logger = System.out::println;
 
 	public static void main(String[] args) throws IOException {
 		Path folderPath = Paths.get(args[0]);
@@ -30,7 +30,7 @@ public class Main {
 		Path plotCsPath = folderPath.resolve("graph2.png");
 		Path plotSyndicPath = folderPath.resolve("graph3.png");
 
-		MBoxParser parser = new MBoxParser();
+		MBoxParser parser = new MBoxParser(logger);
 		MailCleaningConfiguration confMailCleaning = MailCleaningConfiguration.parser().apply(confMailCleaningPath);
 		List<Mail> mails = parser.parseMBox(mboxPath)//
 				.peek(displayMail())//
