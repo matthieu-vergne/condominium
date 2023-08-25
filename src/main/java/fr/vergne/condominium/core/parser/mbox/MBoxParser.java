@@ -14,7 +14,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Base64;
-import java.util.Base64.Decoder;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Spliterators;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntPredicate;
@@ -31,12 +32,15 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Headers;
 import fr.vergne.condominium.core.mail.Mail;
+import fr.vergne.condominium.core.mail.Mail.Body;
+import fr.vergne.condominium.core.parser.mbox.MBoxParser.Encoding.Decoder.FromString;
 
 public class MBoxParser {
 
@@ -113,7 +117,6 @@ public class MBoxParser {
 
 	private Mail parseMail(List<String> lines) {
 		// TODO Support RFCs
-		// https://datatracker.ietf.org/doc/html/rfcXXX
 		// rfc822/rfc2822/rfc3522 Message format
 		// rfc934 Message Forwarding
 		// rfc2046 MIME
@@ -132,12 +135,10 @@ public class MBoxParser {
 		ZonedDateTime receivedDate = parseTimestamp(fromMatcher.group(2));
 		Supplier<ZonedDateTime> receivedDateSupplier = () -> receivedDate;
 
-		Headers headers = parseHeaders(linesIterator);
-
-		String body = readBody(linesIterator);
+		Parsed parsed = parse(linesIterator);
 
 		Supplier<Mail.Address> senderToSupplier = () -> {
-			Address senderAddress = headers.tryGet("From")//
+			Address senderAddress = parsed.headers().tryGet("From")//
 					.map(Header::body)//
 					.map(addressParser)//
 					.orElseThrow(() -> new IllegalStateException("No sender for " + id));
@@ -146,9 +147,9 @@ public class MBoxParser {
 
 		Supplier<Stream<Mail.Address>> receiversSupplier = () -> {
 			return Stream.of(//
-					headers.tryGet("To"), //
-					headers.tryGet("Cc"), //
-					headers.tryGet("Delivered-To")//
+					parsed.headers().tryGet("To"), //
+					parsed.headers().tryGet("Cc"), //
+					parsed.headers().tryGet("Delivered-To")//
 			)//
 					.filter(Optional::isPresent).map(Optional::get)//
 					.map(Header::body)//
@@ -157,10 +158,43 @@ public class MBoxParser {
 					.map(address -> Mail.Address.createWithCanonEmail(address.name(), address.email()));
 		};
 
-		return new Mail.Base(id, lines, headers, body, receivedDateSupplier, senderToSupplier, receiversSupplier);
+		return new Mail.Base(id, lines, parsed.headersSupplier(), parsed.bodySupplier(), receivedDateSupplier,
+				senderToSupplier, receiversSupplier);
 	}
 
-	
+	record Parsed(Supplier<Headers> headersSupplier, Supplier<Body> bodySupplier) {
+		Headers headers() {
+			return headersSupplier.get();
+		}
+
+		Body body() {
+			return bodySupplier.get();
+		}
+	}
+
+	private Parsed parse(Iterator<String> linesIterator) {
+		Supplier<Headers> headersSupplier = () -> parseHeaders(linesIterator);
+		// The lines can be consumed only once, so cache the result
+		Supplier<Headers> actualHeadersSupplier = cache(headersSupplier);
+
+		Supplier<Body> bodySupplier = () -> parseBody(linesIterator, actualHeadersSupplier.get());
+		// The lines can be consumed only once, so cache the result
+		Supplier<Body> actualBodySupplier = cache(bodySupplier);
+
+		return new Parsed(actualHeadersSupplier, actualBodySupplier);
+	}
+
+	private <T> Supplier<T> cache(Supplier<T> supplier) {
+		var cache = new Object() {
+			T value = null;
+		};
+		return () -> {
+			if (cache.value == null) {
+				cache.value = supplier.get();
+			}
+			return cache.value;
+		};
+	}
 
 	private Headers parseHeaders(Iterator<String> linesIterator) {
 		List<String> headerLines = new LinkedList<>();
@@ -266,14 +300,603 @@ public class MBoxParser {
 		return dateTime;
 	}
 
-	private String readBody(Iterator<String> linesIterator) {
-		StringBuilder bodyBuilder = new StringBuilder();
+	private Body parseBody(Iterator<String> linesIterator, Headers headers) {
+		StringBuilder bodyContentBuilder = new StringBuilder();
 		String separator = lineSeparator();
 		while (linesIterator.hasNext()) {
 			String line = linesIterator.next();
-			bodyBuilder.append(line).append(separator);
+			bodyContentBuilder.append(line).append(separator);
 		}
-		return bodyBuilder.toString();
+		String bodyContent = bodyContentBuilder.toString();
+		RawBody rawBody = new RawBody(bodyContent);
+
+		// References:
+		// https://datatracker.ietf.org/doc/html/rfc2045#section-6.1
+		// TODO Support ietf-token
+		// TODO Support x-token
+		Encoding encoding = headers.tryGet("Content-Transfer-Encoding").map(Header::body)//
+				.map(String::toLowerCase)//
+				.map(contentTransferEncoding -> {
+					switch (contentTransferEncoding) {
+					case "base64":
+						return Encoding.BASE64;
+					case "quoted-printable":
+						return Encoding.QUOTED_PRINTABLE;
+					case "8bit":
+						return Encoding._8BIT;
+					case "7bit":
+						return Encoding._7BIT;
+					case "binary":
+						return Encoding.BINARY;
+					default:
+						throw new RuntimeException("Not supported: " + contentTransferEncoding);
+					}
+				})//
+				.orElse(Encoding._7BIT);
+
+		Encoding.Decoder decoder = encoding.decoder();
+		FromString stringDecoder = decoder.fromString(bodyContent);
+		Function<String, byte[]> bytesDecoder = decoder.forBytes();
+
+		Body body = headers.tryGet("Content-Type").map(ContentType::parse).map(contentType -> {
+			Supplier<String> stringSupplier = () -> stringDecoder
+					.toString(contentType.charset().orElse(Charset.defaultCharset()));
+			Supplier<byte[]> bytesSupplier = () -> bytesDecoder.apply(bodyContent);
+			if (contentType.mainType().equals("text/plain")) {
+				return new PlainBody(stringSupplier.get());
+			} else if (contentType.mainType().equals("text/html")) {
+				return new HtmlBody(stringSupplier.get());
+			} else if (contentType.mainType().equals("text/x-amp-html")) {
+				return new AmpHtmlBody(stringSupplier.get());
+			} else if (contentType.mainType().equals("text/rfc822-headers")) {
+				// https://datatracker.ietf.org/doc/html/rfc1892#section-2
+				return new MessageHeadersBody(stringSupplier.get());
+			} else if (contentType.mainType().equals("message/rfc822")) {
+				// https://datatracker.ietf.org/doc/html/rfc2046#section-5.2
+				return new MessageBody(stringSupplier.get());
+			} else if (contentType.mainType().equals("message/delivery-status")) {
+				// https://datatracker.ietf.org/doc/html/rfc3464#section-2.1
+				return new MessageStatusBody(stringSupplier.get());
+			} else if (contentType.mainType().equals("text/calendar")) {
+				return new CalendarBody(stringSupplier.get(), contentType.method().get());
+			} else if (contentType.mainType().equals("application/ics")) {
+				return new IcsBody(stringSupplier.get(), contentType.name().get());
+			} else if (contentType.mainType().equals("application/pdf")) {
+				return new PdfBody(bytesSupplier.get(), contentType.name().get());
+			} else if (contentType.mainType()
+					.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document")) {
+				return new DocxBody(bytesSupplier.get(), contentType.name().get());
+			} else if (contentType.mainType()
+					.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) {
+				return new XlsxBody(bytesSupplier.get(), contentType.name().get());
+			} else if (contentType.mainType().equals("image/png")) {
+				return new ImageBody(bytesSupplier.get(), ImageBody.Format.PNG);
+			} else if (contentType.mainType().equals("image/jpeg")) {
+				return new ImageBody(bytesSupplier.get(), ImageBody.Format.JPEG);
+			} else if (contentType.mainType().equals("image/gif")) {
+				return new ImageBody(bytesSupplier.get(), ImageBody.Format.GIF);
+			} else if (contentType.mainType().equals("image/heic")) {
+				return new ImageBody(bytesSupplier.get(), ImageBody.Format.HEIC);
+			} else if (contentType.mainType().equals("video/mp4")) {
+				return new VideoBody(bytesSupplier.get(), VideoBody.Format.MP4);
+			} else if (contentType.mainType().equals("multipart/mixed")) {
+				// References:
+				// https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.3
+				// TODO Check reference to properly parse it
+				// TODO Default multipart, or if not recognized, should be considered as mixed
+				String boundary = contentType.boundary().get();
+				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
+				return new MultiMixBody(Stream.of(bodyContent.split(boundaryRegex))//
+						.skip(1)// Ignore first part
+						.map(part -> parse(part.lines().iterator()).body())//
+						.toList()//
+				);
+			} else if (contentType.mainType().equals("multipart/alternative")) {
+				// References:
+				// https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.4
+				// TODO Check reference to properly parse it
+				String boundary = contentType.boundary().get();
+				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
+				return new MultiAltBody(Stream.of(bodyContent.split(boundaryRegex))//
+						.skip(1)// Ignore first part
+						.map(part -> parse(part.lines().iterator()).body())//
+						.toList()//
+				);
+			} else if (contentType.mainType().equals("multipart/related")) {
+				// References:
+				// https://datatracker.ietf.org/doc/html/rfc2387
+				// TODO Check reference to properly parse it
+				String boundary = contentType.boundary().get();
+				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
+				return new MultiRelBody(Stream.of(bodyContent.split(boundaryRegex))//
+						.skip(1)// Ignore first part
+						.map(part -> parse(part.lines().iterator()).body())//
+						.toList());
+			} else if (contentType.mainType().equals("multipart/report")) {
+				// References:
+				// https://datatracker.ietf.org/doc/html/rfc6522
+				// TODO Check reference to properly parse it
+				String boundary = contentType.boundary().get();
+				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
+				return new MultiRepBody(Stream.of(bodyContent.split(boundaryRegex))//
+						.skip(1)// Ignore first part
+						.map(part -> parse(part.lines().iterator()).body())//
+						.toList());
+			} else if (contentType.mainType().equals("application/octet-stream")) {
+				// TODO Should we be careful of application/octet-stream for security?
+				// TODO Retrieve type from content if possible, otherwise from name
+				return contentType.name().map(name -> {
+					if (name.endsWith(".pdf")) {
+						return new PdfBody(bytesSupplier.get(), contentType.name().get());
+					} else {
+						throw new RuntimeException("Not supported: " + name);
+					}
+				}).orElseThrow(() -> new RuntimeException("No name to retrieve type"));
+			} else {
+				throw new RuntimeException("Not supported: " + contentType);
+			}
+		}).orElse(rawBody);
+
+		return body;
+	}
+
+	interface ContentType {
+
+		String mainType();
+
+		Optional<Charset> charset();
+
+		Optional<String> boundary();
+
+		Optional<String> type();
+
+		Optional<String> method();
+
+		Optional<String> name();
+
+		public static ContentType parse(Header header) {
+			// TODO Parse reliably (which RFC?)
+			String contentType = header.body();
+			String[] split = contentType.split(";");
+			String mainType = split[0].trim();
+			var wrapper = new Object() {
+				// TODO Check the purpose of each item
+				Optional<String> charset = Optional.empty();
+				Optional<String> boundary = Optional.empty();
+				Optional<String> type = Optional.empty();
+				Optional<String> format = Optional.empty();
+				Optional<String> delsp = Optional.empty();
+				Optional<String> method = Optional.empty();
+				Optional<String> name = Optional.empty();
+				Optional<String> reportType = Optional.empty();
+			};
+			Stream.of(split).skip(1).map(String::trim).forEach(part -> {
+				String[] split2 = part.split("=", 2);
+				String name = split2[0];
+				String value = split2[1];
+				if (name.equals("charset")) {
+					wrapper.charset = Optional.of(unquote(value));
+				} else if (name.equals("boundary")) {
+					wrapper.boundary = Optional.of(unquote(value));
+				} else if (name.equals("type")) {
+					wrapper.type = Optional.of(value);
+				} else if (name.equals("format")) {
+					wrapper.format = Optional.of(value);
+				} else if (name.equals("delsp")) {
+					wrapper.delsp = Optional.of(value);
+				} else if (name.equals("method")) {
+					wrapper.method = Optional.of(value);
+				} else if (name.equals("name")) {
+					wrapper.name = Optional.of(unquote(value));
+				} else if (name.equals("report-type")) {
+					wrapper.reportType = Optional.of(unquote(value));
+				} else {
+					throw new RuntimeException("Not supported: " + name);
+				}
+			});
+			return new ContentType() {
+				@Override
+				public String mainType() {
+					return mainType;
+				}
+
+				@Override
+				public Optional<Charset> charset() {
+					return wrapper.charset.map(Charset::forName);
+				}
+
+				@Override
+				public Optional<String> boundary() {
+					return wrapper.boundary;
+				}
+
+				@Override
+				public Optional<String> type() {
+					return wrapper.type;
+				}
+
+				@Override
+				public Optional<String> method() {
+					return wrapper.method;
+				}
+
+				@Override
+				public Optional<String> name() {
+					return wrapper.name;
+				}
+
+				@Override
+				public String toString() {
+					return contentType;
+				}
+			};
+		}
+
+		private static String unquote(String value) {
+			return value.startsWith("\"") && value.endsWith("\"") //
+					? value.substring(1, value.length() - 1) //
+					: value;
+		}
+	}
+
+	public static class RawBody implements Mail.Body {
+		private final String content;
+
+		public RawBody(String content) {
+			this.content = content;
+		}
+
+		@Override
+		public String toString() {
+			return "[RAW]\n" + content;
+		}
+	}
+
+	public static class PlainBody implements Mail.Body {
+		private final String text;
+
+		public PlainBody(String text) {
+			this.text = text;
+		}
+
+		public String text() {
+			return text;
+		}
+
+		@Override
+		public String toString() {
+			return "[PLAIN]\n" + text;
+		}
+	}
+
+	public static class HtmlBody implements Mail.Body {
+		private final String html;
+
+		public HtmlBody(String html) {
+			this.html = html;
+		}
+
+		public String html() {
+			return html;
+		}
+
+		@Override
+		public String toString() {
+			return "[HTML]\n" + html;
+		}
+	}
+
+	public static class AmpHtmlBody implements Mail.Body {
+		private final String html;
+
+		public AmpHtmlBody(String html) {
+			this.html = html;
+		}
+
+		public String html() {
+			return html;
+		}
+
+		@Override
+		public String toString() {
+			return "[HTML]\n" + html;
+		}
+	}
+
+	public static class MessageBody implements Mail.Body {
+		private final String message;
+
+		public MessageBody(String message) {
+			this.message = message;
+		}
+
+		public String message() {
+			return message;
+		}
+
+		@Override
+		public String toString() {
+			return "[MSG]\n" + message;
+		}
+	}
+
+	public static class MessageHeadersBody implements Mail.Body {
+		private final String headers;
+
+		public MessageHeadersBody(String headers) {
+			this.headers = headers;
+		}
+
+		public String headers() {
+			return headers;
+		}
+
+		@Override
+		public String toString() {
+			return "[MSG-HEAD]\n" + headers;
+		}
+	}
+
+	public static class MessageStatusBody implements Mail.Body {
+		private final String status;
+
+		public MessageStatusBody(String status) {
+			this.status = status;
+		}
+
+		public String status() {
+			return status;
+		}
+
+		@Override
+		public String toString() {
+			return "[MSG-STATUS]\n" + status;
+		}
+	}
+
+	public static class CalendarBody implements Mail.Body {
+		private final String script;
+		private final String method;
+
+		public CalendarBody(String script, String method) {
+			this.script = script;
+			this.method = method;
+		}
+
+		public String script() {
+			return script;
+		}
+
+		public String method() {
+			return method;
+		}
+
+		@Override
+		public String toString() {
+			return "[CALENDAR]\n" + script;
+		}
+	}
+
+	public static class IcsBody implements Mail.Body {
+		private final String script;
+		private final String name;
+
+		public IcsBody(String script, String name) {
+			this.script = script;
+			this.name = name;
+		}
+
+		public String script() {
+			return script;
+		}
+
+		public String name() {
+			return name;
+		}
+
+		@Override
+		public String toString() {
+			return "[ICS]\n" + script;
+		}
+	}
+
+	public static class PdfBody implements Mail.Body {
+		private final byte[] bytes;
+		private final String name;
+
+		public PdfBody(byte[] bytes, String name) {
+			this.bytes = bytes;
+			this.name = name;
+		}
+
+		public byte[] bytes() {
+			return bytes;
+		}
+
+		public String name() {
+			return name;
+		}
+
+		@Override
+		public String toString() {
+			return "[PDF]" + bytes.length;
+		}
+	}
+
+	public static class DocxBody implements Mail.Body {
+		private final byte[] bytes;
+		private final String name;
+
+		public DocxBody(byte[] bytes, String name) {
+			this.bytes = bytes;
+			this.name = name;
+		}
+
+		public byte[] bytes() {
+			return bytes;
+		}
+
+		public String name() {
+			return name;
+		}
+
+		@Override
+		public String toString() {
+			return "[DOCX]" + bytes.length;
+		}
+	}
+
+	public static class XlsxBody implements Mail.Body {
+		private final byte[] bytes;
+		private final String name;
+
+		public XlsxBody(byte[] bytes, String name) {
+			this.bytes = bytes;
+			this.name = name;
+		}
+
+		public byte[] bytes() {
+			return bytes;
+		}
+
+		public String name() {
+			return name;
+		}
+
+		@Override
+		public String toString() {
+			return "[XLSX]" + bytes.length;
+		}
+	}
+
+	public static class ImageBody implements Mail.Body {
+		private final byte[] bytes;
+		private final Format format;
+
+		enum Format {
+			PNG, JPEG, GIF, HEIC
+		}
+
+		public ImageBody(byte[] bytes, Format format) {
+			this.bytes = bytes;
+			this.format = format;
+		}
+
+		public byte[] bytes() {
+			return bytes;
+		}
+
+		public Format format() {
+			return format;
+		}
+
+		@Override
+		public String toString() {
+			return "[IMAGE-" + format + "]" + bytes.length;
+		}
+	}
+
+	public static class VideoBody implements Mail.Body {
+		private final byte[] bytes;
+		private final Format format;
+
+		enum Format {
+			MP4
+		}
+
+		public VideoBody(byte[] bytes, Format format) {
+			this.bytes = bytes;
+			this.format = format;
+		}
+
+		public byte[] bytes() {
+			return bytes;
+		}
+
+		public Format format() {
+			return format;
+		}
+
+		@Override
+		public String toString() {
+			return "[VIDEO-" + format + "]" + bytes.length;
+		}
+	}
+
+	public static class MultiMixBody implements Mail.Body {
+
+		private final Collection<? extends Mail.Body> bodies;
+
+		public MultiMixBody(Collection<? extends Mail.Body> bodies) {
+			this.bodies = bodies;
+		}
+
+		public Collection<? extends Mail.Body> bodies() {
+			return bodies;
+		}
+
+		@Override
+		public String toString() {
+			return "[MULTI-MIX]" + bodies.size() + "\n"
+					+ bodies.stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
+		}
+	}
+
+	public static class MultiAltBody implements Mail.Body {
+
+		private final Collection<? extends Mail.Body> bodies;
+
+		public MultiAltBody(Collection<? extends Mail.Body> bodies) {
+			this.bodies = bodies;
+		}
+
+		public Collection<? extends Mail.Body> bodies() {
+			return bodies;
+		}
+
+		@Override
+		public String toString() {
+			return "[MULTI-ALT]" + bodies.size() + "\n"
+					+ bodies.stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
+		}
+	}
+
+	public static class MultiRelBody implements Mail.Body {
+
+		private final Collection<? extends Mail.Body> bodies;
+
+		public MultiRelBody(Collection<? extends Mail.Body> bodies) {
+			this.bodies = bodies;
+		}
+
+		public Collection<? extends Mail.Body> bodies() {
+			return bodies;
+		}
+
+		@Override
+		public String toString() {
+			return "[MULTI-MIX]" + bodies.size() + "\n"
+					+ bodies.stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
+		}
+	}
+
+	public static class MultiRepBody implements Mail.Body {
+
+		private final Collection<? extends Mail.Body> bodies;
+
+		public MultiRepBody(Collection<? extends Mail.Body> bodies) {
+			this.bodies = bodies;
+		}
+
+		public Collection<? extends Mail.Body> bodies() {
+			return bodies;
+		}
+
+		@Override
+		public String toString() {
+			return "[MULTI-MIX]" + bodies.size() + "\n"
+					+ bodies.stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
+		}
 	}
 
 	private List<String> unfoldHeaders(List<String> lines) {
@@ -289,16 +912,70 @@ public class MBoxParser {
 	}
 
 	public enum Encoding {
-		B(() -> {
-			Decoder decoder = Base64.getMimeDecoder();
-			return charset -> encoded -> new String(decoder.decode(encoded), charset);
-		}), //
-		Q(() -> {
-			// References:
-			// https://datatracker.ietf.org/doc/html/rfc2045
-			// https://datatracker.ietf.org/doc/html/rfc2047#section-4.2
-			return charset -> {
-				return encoded -> {
+		BINARY(//
+				(encoded) -> {
+					// TODO Is String input relevant in this case?
+					throw new RuntimeException("Not implemented yet");
+				}, //
+				(encoded, charset) -> {
+					// TODO Is String input relevant in this case?
+					throw new RuntimeException("Not implemented yet");
+				}, //
+				() -> {
+					// References:
+					// https://datatracker.ietf.org/doc/html/rfc2045#section-6.2
+					return charset -> encoded -> {
+						// TODO Is String input relevant in this case?
+						throw new RuntimeException("Not implemented yet");
+					};
+				}//
+		), //
+		_7BIT(//
+				// References:
+				// https://datatracker.ietf.org/doc/html/rfc2045#autoid-9
+				// https://datatracker.ietf.org/doc/html/rfc2045#section-6.2
+				(encoded) -> {
+					throw new RuntimeException("Not implemented yet");
+				}, //
+				(encoded, charset) -> {
+					return encoded;
+				}, //
+				() -> {
+					return charset -> encoded -> encoded;
+				}//
+		), //
+		_8BIT(//
+				(encoded) -> {
+					throw new RuntimeException("Not implemented yet");
+				}, //
+				(encoded, charset) -> {
+					return encoded;
+				}, //
+				() -> {
+					// References:
+					// https://datatracker.ietf.org/doc/html/rfc2045#autoid-10
+					// https://datatracker.ietf.org/doc/html/rfc2045#section-6.2
+					return charset -> encoded -> encoded;
+				}//
+		), //
+		BASE64(//
+				(encoded) -> {
+					return Base64.getMimeDecoder().decode(encoded);
+				}, //
+				(encoded, charset) -> {
+					return new String(Base64.getMimeDecoder().decode(encoded), charset);
+				}, //
+				() -> {
+					return charset -> encoded -> {
+						return new String(Base64.getMimeDecoder().decode(encoded), charset);
+					};
+				}//
+		), //
+		QUOTED_PRINTABLE(//
+				(encoded) -> {
+					throw new RuntimeException("Not implemented yet");
+				}, //
+				(encoded, charset) -> {
 					StringReader reader = new StringReader(encoded);
 					ByteArrayOutputStream out = new ByteArrayOutputStream();
 					try {
@@ -309,15 +986,12 @@ public class MBoxParser {
 							whiteSpaces.clear();
 						};
 						while ((character = reader.read()) != -1) {
-							// TODO Finish
-							if (character == codePointOf('_')) {
-								whiteSpacesWriter.run();
-								out.write(' ');
-							} else if (character == 9 || character == 32) {
+							if (character == 9 || character == 32) {
 								whiteSpaces.add(character);
-							} else if (character == codePointOf('\n')) {
+							} else if (character == codePointOf('\r')) {
 								whiteSpaces.clear();
 								out.write(character);
+								out.write(reader.read());// Assume \n
 							} else if (character == codePointOf('=')) {
 								whiteSpacesWriter.run();
 								char[] buffer = new char[2];
@@ -340,18 +1014,223 @@ public class MBoxParser {
 						throw new IllegalArgumentException("Cannot read: " + encoded);
 					}
 					return out.toString(charset);
-				};
-			};
-		});//
+				}, //
+				() -> {
+					// References:
+					// https://datatracker.ietf.org/doc/html/rfc2045
+					return charset -> {
+						return encoded -> {
+							StringReader reader = new StringReader(encoded);
+							ByteArrayOutputStream out = new ByteArrayOutputStream();
+							try {
+								int character;
+								List<Integer> whiteSpaces = new LinkedList<>();
+								Runnable whiteSpacesWriter = () -> {
+									whiteSpaces.forEach(out::write);
+									whiteSpaces.clear();
+								};
+								while ((character = reader.read()) != -1) {
+									if (character == 9 || character == 32) {
+										whiteSpaces.add(character);
+									} else if (character == codePointOf('\r')) {
+										whiteSpaces.clear();
+										out.write(character);
+										out.write(reader.read());// Assume \n
+									} else if (character == codePointOf('=')) {
+										whiteSpacesWriter.run();
+										char[] buffer = new char[2];
+										reader.read(buffer);
+										if (buffer[0] == codePointOf('\r') && buffer[1] == codePointOf('\n')) {
+											// Simple line break to fit 76 characters
+										} else {
+											int decodedCharacter = Integer.parseInt(new String(buffer), 16);
+											out.write(decodedCharacter);
+										}
+									} else if (33 <= character && character <= 60
+											|| 62 <= character && character <= 126) {
+										whiteSpacesWriter.run();
+										Character.toString(character);
+										out.write(character);
+									} else {
+										throw new RuntimeException("Not supported character: " + character);
+									}
+								}
+							} catch (IOException cause) {
+								throw new IllegalArgumentException("Cannot read: " + encoded);
+							}
+							return out.toString(charset);
+						};
+					};
+				}//
+		), //
+		B(//
+				(encoded) -> {
+					throw new RuntimeException("Not implemented yet");
+				}, //
+				(encoded, charset) -> {
+					return new String(Base64.getMimeDecoder().decode(encoded), charset);
+				}, //
+				() -> {
+					return charset -> encoded -> {
+						return new String(Base64.getMimeDecoder().decode(encoded), charset);
+					};
+				}//
+		), //
+		Q(//
+				(encoded) -> {
+					throw new RuntimeException("Not implemented yet");
+				}, //
+				(encoded, charset) -> {
+					StringReader reader = new StringReader(encoded);
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					try {
+						int character;
+						List<Integer> whiteSpaces = new LinkedList<>();
+						Runnable whiteSpacesWriter = () -> {
+							whiteSpaces.forEach(out::write);
+							whiteSpaces.clear();
+						};
+						while ((character = reader.read()) != -1) {
+							// TODO Finish
+							if (character == codePointOf('_')) {
+								whiteSpacesWriter.run();
+								out.write(' ');
+							} else if (character == 9 || character == 32) {
+								whiteSpaces.add(character);
+							} else if (character == codePointOf('\r')) {
+								whiteSpaces.clear();
+								out.write(character);
+								out.write(reader.read());// Assume \n
+							} else if (character == codePointOf('=')) {
+								whiteSpacesWriter.run();
+								char[] buffer = new char[2];
+								reader.read(buffer);
+								if (buffer[0] == codePointOf('\r') && buffer[1] == codePointOf('\n')) {
+									// Simple line break to fit 76 characters
+								} else {
+									int decodedCharacter = Integer.parseInt(new String(buffer), 16);
+									out.write(decodedCharacter);
+								}
+							} else if (33 <= character && character <= 60 || 62 <= character && character <= 126) {
+								whiteSpacesWriter.run();
+								Character.toString(character);
+								out.write(character);
+							} else {
+								throw new RuntimeException("Not supported character: " + character);
+							}
+						}
+					} catch (IOException cause) {
+						throw new IllegalArgumentException("Cannot read: " + encoded);
+					}
+					return out.toString(charset);
+				}, //
+				() -> {
+					// References:
+					// https://datatracker.ietf.org/doc/html/rfc2047#section-4.2
+					return charset -> {
+						return encoded -> {
+							StringReader reader = new StringReader(encoded);
+							ByteArrayOutputStream out = new ByteArrayOutputStream();
+							try {
+								int character;
+								List<Integer> whiteSpaces = new LinkedList<>();
+								Runnable whiteSpacesWriter = () -> {
+									whiteSpaces.forEach(out::write);
+									whiteSpaces.clear();
+								};
+								while ((character = reader.read()) != -1) {
+									// TODO Finish
+									if (character == codePointOf('_')) {
+										whiteSpacesWriter.run();
+										out.write(' ');
+									} else if (character == 9 || character == 32) {
+										whiteSpaces.add(character);
+									} else if (character == codePointOf('\r')) {
+										whiteSpaces.clear();
+										out.write(character);
+										out.write(reader.read());// Assume \n
+									} else if (character == codePointOf('=')) {
+										whiteSpacesWriter.run();
+										char[] buffer = new char[2];
+										reader.read(buffer);
+										if (buffer[0] == codePointOf('\r') && buffer[1] == codePointOf('\n')) {
+											// Simple line break to fit 76 characters
+										} else {
+											int decodedCharacter = Integer.parseInt(new String(buffer), 16);
+											out.write(decodedCharacter);
+										}
+									} else if (33 <= character && character <= 60
+											|| 62 <= character && character <= 126) {
+										whiteSpacesWriter.run();
+										Character.toString(character);
+										out.write(character);
+									} else {
+										throw new RuntimeException("Not supported character: " + character);
+									}
+								}
+							} catch (IOException cause) {
+								throw new IllegalArgumentException("Cannot read: " + encoded);
+							}
+							return out.toString(charset);
+						};
+					};
+				}//
+		);//
 
 		private final Function<Charset, UnaryOperator<String>> decoderFactory;
+		private final Function<String, byte[]> byteDecoder;
+		private final BiFunction<String, Charset, String> stringDecoder;
 
-		private Encoding(Supplier<Function<Charset, UnaryOperator<String>>> decoderFactory) {
-			this.decoderFactory = decoderFactory.get();
+		private Encoding(Function<String, byte[]> byteDecoder, BiFunction<String, Charset, String> stringDecoder,
+				Supplier<Function<Charset, UnaryOperator<String>>> decoderFactorySupplier) {
+			this.byteDecoder = byteDecoder;
+			this.stringDecoder = stringDecoder;
+			this.decoderFactory = decoderFactorySupplier.get();
 		}
 
-		UnaryOperator<String> decoder(Charset charset) {
-			return decoderFactory.apply(charset);
+		Decoder decoder() {
+			return new Decoder() {
+
+				@Override
+				public Function<String, byte[]> forBytes() {
+					return byteDecoder;
+				}
+
+				@Override
+				public Function<String, String> forString(Charset charset) {
+					return content -> stringDecoder.apply(content, charset);
+				}
+
+				@Override
+				public FromString fromString(String content) {
+					return new Decoder.FromString() {
+
+						@Override
+						public byte[] toBytes() {
+							return byteDecoder.apply(content);
+						}
+
+						@Override
+						public String toString(Charset charset) {
+							return stringDecoder.apply(content, charset);
+						}
+					};
+				}
+			};
+		}
+
+		interface Decoder {
+			Function<String, byte[]> forBytes();
+
+			Function<String, String> forString(Charset charset);
+
+			Decoder.FromString fromString(String content);
+
+			interface FromString {
+				byte[] toBytes();
+
+				String toString(Charset charset);
+			}
 		}
 
 		private static final Pattern ENCODED_PATTERN = Pattern.compile("=\\?(.*?)\\?(.*?)\\?(.*?)\\?=");
@@ -359,8 +1238,8 @@ public class MBoxParser {
 		public static String decodeAll(String value) {
 			return ENCODED_PATTERN.matcher(value).replaceAll(match -> {
 				Charset charset = Charset.forName(match.group(1));
-				Encoding encoding = Encoding.valueOf(match.group(2));
-				UnaryOperator<String> decoder = encoding.decoder(charset);
+				Encoding encoding = Encoding.valueOf(match.group(2).toUpperCase());
+				UnaryOperator<String> decoder = encoding.decoder().forString(charset)::apply;
 				String encoded = match.group(3);
 				return decoder.apply(encoded);
 			});

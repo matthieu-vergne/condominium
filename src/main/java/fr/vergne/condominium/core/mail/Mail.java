@@ -11,6 +11,8 @@ public interface Mail {
 
 	Headers headers();
 
+	Body body();
+
 	String subject();
 
 	Address sender();
@@ -26,7 +28,7 @@ public interface Mail {
 		Optional<String> name();
 
 		String email();
-		
+
 		public static Address createWithCanonEmail(Optional<String> name, String email) {
 			String canonEmail = email.toLowerCase();
 			return new Mail.Address() {
@@ -44,23 +46,27 @@ public interface Mail {
 		}
 	}
 
+	public interface Body {
+
+	}
+
 	static class Base implements Mail {
 		private final String id;
 		private final List<String> lines;
-		private final Headers headers;
-		private final String body;
+		private final Supplier<Headers> headersSupplier;
+		private final Supplier<Body> bodySupplier;
 		private final Supplier<ZonedDateTime> receivedDateSupplier;
 		private final Supplier<Address> senderSupplier;
 		private final Supplier<Stream<Address>> receiversSupplier;
 
-		public Base(String id, List<String> lines, Headers headers, String body,
-				Supplier<ZonedDateTime> receivedDateSupplier, Supplier<Address> sender2Supplier,
+		public Base(String id, List<String> lines, Supplier<Headers> headersSupplier, Supplier<Body> bodySupplier,
+				Supplier<ZonedDateTime> receivedDateSupplier, Supplier<Address> senderSupplier,
 				Supplier<Stream<Address>> receiversSupplier) {
 			this.id = id;
 			this.receivedDateSupplier = receivedDateSupplier;
-			this.headers = headers;
-			this.body = body;
-			this.senderSupplier = sender2Supplier;
+			this.headersSupplier = headersSupplier;
+			this.bodySupplier = bodySupplier;
+			this.senderSupplier = senderSupplier;
 			this.receiversSupplier = receiversSupplier;
 			this.lines = Collections.unmodifiableList(lines);
 		}
@@ -71,13 +77,18 @@ public interface Mail {
 		}
 
 		@Override
+		public Body body() {
+			return bodySupplier.get();
+		}
+
+		@Override
 		public Headers headers() {
-			return headers;
+			return headersSupplier.get();
 		}
 
 		@Override
 		public String subject() {
-			return headers.get("subject").body();
+			return headersSupplier.get().get("subject").body();
 		}
 
 		@Override
