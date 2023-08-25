@@ -39,6 +39,13 @@ public class Main {
 
 		logger.accept("=================");
 
+		logger.accept("Associate mails to topics");
+		// TODO Create topics
+		// TODO Associate emails to topic
+		// TODO Associate email sections to topic
+
+		logger.accept("=================");
+
 		logger.accept("Read profiles conf");
 		ProfilesConfiguration confProfiles = ProfilesConfiguration.parser().apply(confProfilesPath);
 
