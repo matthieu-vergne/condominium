@@ -13,8 +13,8 @@ import org.junit.jupiter.api.Test;
 
 // FIXME Replace by unit tests on actual components
 class TempTest {
-	Path srcFolder = Paths.get(System.getProperty("folder"));
-	Path refFolder = srcFolder.resolve("test");
+	Path srcFolder = Paths.get(System.getProperty("srcFolder"));
+	Path refFolder = Paths.get(System.getProperty("refFolder"));
 
 	@Test
 	void testPlantUml() throws IOException {

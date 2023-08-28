@@ -20,15 +20,18 @@ public class Main {
 	private static final Consumer<Object> logger = System.out::println;
 
 	public static void main(String[] args) throws IOException {
-		Path folderPath = Paths.get(args[0]);
-		Path mboxPath = folderPath.resolve(args[1]);
-		Path confProfilesPath = folderPath.resolve("confProfiles.yaml");
-		Path confMailCleaningPath = folderPath.resolve("confMailCleaning.yaml");
-		Path confPlotCsPath = folderPath.resolve("confPlotCs.yaml");
-		Path confPlotSyndicPath = folderPath.resolve("confPlotSyndic.yaml");
-		Path historyPath = folderPath.resolve("graph.svg");
-		Path plotCsPath = folderPath.resolve("graph2.png");
-		Path plotSyndicPath = folderPath.resolve("graph3.png");
+		Path importFolderPath = Paths.get(System.getProperty("importFolder"));
+		Path confFolderPath = Paths.get(System.getProperty("confFolder"));
+		Path outFolderPath = Paths.get(System.getProperty("outFolder"));
+		outFolderPath.toFile().mkdirs();
+		Path mboxPath = importFolderPath.resolve(System.getProperty("mbox"));
+		Path confProfilesPath = confFolderPath.resolve("profiles.yaml");
+		Path confMailCleaningPath = confFolderPath.resolve("mailCleaning.yaml");
+		Path confPlotCsPath = confFolderPath.resolve("plotCs.yaml");
+		Path confPlotSyndicPath = confFolderPath.resolve("plotSyndic.yaml");
+		Path historyPath = outFolderPath.resolve("graph.svg");
+		Path plotCsPath = outFolderPath.resolve("graph2.png");
+		Path plotSyndicPath = outFolderPath.resolve("graph3.png");
 
 		MBoxParser parser = new MBoxParser(logger);
 		MailCleaningConfiguration confMailCleaning = MailCleaningConfiguration.parser().apply(confMailCleaningPath);
