@@ -16,6 +16,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -48,7 +49,9 @@ import net.sourceforge.plantuml.FileFormatOption;
 import net.sourceforge.plantuml.SourceStringReader;
 
 public interface MailHistory {
-	void writeSvg(Path svgPath);
+	void writeScript(Path path);
+
+	void writeSvg(Path path);
 
 	public interface Factory {
 		MailHistory create(List<Mail> mails);
@@ -100,6 +103,21 @@ public interface MailHistory {
 			@Override
 			public MailHistory create(List<Mail> mails) {
 				return new MailHistory() {
+
+					@Override
+					public void writeScript(Path path) {
+						logger.accept("Prepare profiles");
+						Collection<Profile> profiles = createProfiles(mails);
+
+						logger.accept("Redact script");
+						String script = createPlantUml(profiles, mails);
+
+						try {
+							Files.writeString(path, script);
+						} catch (IOException cause) {
+							throw new RuntimeException("Cannot write script", cause);
+						}
+					}
 
 					@Override
 					public void writeSvg(Path svgPath) {

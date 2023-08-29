@@ -17,12 +17,22 @@ class TempTest {
 	Path refFolder = Paths.get(System.getProperty("refFolder"));
 
 	@Test
-	void testPlantUml() throws IOException {
+	void testPlantUmlScript() throws IOException {
+		String fileName = "graph.plantuml";
+		Path srcPath = srcFolder.resolve(fileName);
+		Path refPath = refFolder.resolve(fileName);
+		byte[] src = Files.readAllBytes(srcPath);
+		byte[] ref = Files.readAllBytes(refPath);
+		assertThat(src, is(equalTo(ref)));
+	}
+
+	@Test
+	void testPlantUmlImage() throws IOException {
 		String fileName = "graph.svg";
 		Path srcPath = srcFolder.resolve(fileName);
 		Path refPath = refFolder.resolve(fileName);
-		String src = Files.readString(srcPath);
-		String ref = Files.readString(refPath);
+		byte[] src = Files.readAllBytes(srcPath);
+		byte[] ref = Files.readAllBytes(refPath);
 		assertThat(src, is(equalTo(ref)));
 	}
 

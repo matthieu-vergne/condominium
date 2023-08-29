@@ -29,6 +29,7 @@ public class Main {
 		Path confMailCleaningPath = confFolderPath.resolve("mailCleaning.yaml");
 		Path confPlotCsPath = confFolderPath.resolve("plotCs.yaml");
 		Path confPlotSyndicPath = confFolderPath.resolve("plotSyndic.yaml");
+		Path historyScriptPath = outFolderPath.resolve("graph.plantuml");
 		Path historyPath = outFolderPath.resolve("graph.svg");
 		Path plotCsPath = outFolderPath.resolve("graph2.png");
 		Path plotSyndicPath = outFolderPath.resolve("graph3.png");
@@ -58,6 +59,7 @@ public class Main {
 			logger.accept("Create mail history");
 			MailHistory.Factory mailHistoryFactory = new MailHistory.Factory.WithPlantUml(confProfiles, logger);
 			MailHistory mailHistory = mailHistoryFactory.create(mails);
+			mailHistory.writeScript(historyScriptPath);
 			mailHistory.writeSvg(historyPath);
 			logger.accept("Done");
 		}
