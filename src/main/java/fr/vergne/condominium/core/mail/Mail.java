@@ -42,6 +42,13 @@ public interface Mail {
 				public String email() {
 					return canonEmail;
 				}
+
+				@Override
+				public String toString() {
+					String namePart = name().map(name -> name + " ").orElse("");
+					String emailPart = "<" + email() + ">";
+					return namePart + emailPart;
+				}
 			};
 		}
 	}
