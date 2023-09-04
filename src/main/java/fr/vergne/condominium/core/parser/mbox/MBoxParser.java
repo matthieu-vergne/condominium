@@ -920,15 +920,7 @@ public class MBoxParser {
 				(encoded, charset) -> {
 					// TODO Is String input relevant in this case?
 					throw new RuntimeException("Not implemented yet");
-				}, //
-				() -> {
-					// References:
-					// https://datatracker.ietf.org/doc/html/rfc2045#section-6.2
-					return charset -> encoded -> {
-						// TODO Is String input relevant in this case?
-						throw new RuntimeException("Not implemented yet");
-					};
-				}//
+				} //
 		), //
 		_7BIT(//
 				// References:
@@ -939,10 +931,7 @@ public class MBoxParser {
 				}, //
 				(encoded, charset) -> {
 					return encoded;
-				}, //
-				() -> {
-					return charset -> encoded -> encoded;
-				}//
+				} //
 		), //
 		_8BIT(//
 				(encoded) -> {
@@ -950,13 +939,7 @@ public class MBoxParser {
 				}, //
 				(encoded, charset) -> {
 					return encoded;
-				}, //
-				() -> {
-					// References:
-					// https://datatracker.ietf.org/doc/html/rfc2045#autoid-10
-					// https://datatracker.ietf.org/doc/html/rfc2045#section-6.2
-					return charset -> encoded -> encoded;
-				}//
+				} //
 		), //
 		BASE64(//
 				(encoded) -> {
@@ -964,12 +947,7 @@ public class MBoxParser {
 				}, //
 				(encoded, charset) -> {
 					return new String(Base64.getMimeDecoder().decode(encoded), charset);
-				}, //
-				() -> {
-					return charset -> encoded -> {
-						return new String(Base64.getMimeDecoder().decode(encoded), charset);
-					};
-				}//
+				} //
 		), //
 		QUOTED_PRINTABLE(//
 				(encoded) -> {
@@ -1014,54 +992,7 @@ public class MBoxParser {
 						throw new IllegalArgumentException("Cannot read: " + encoded);
 					}
 					return out.toString(charset);
-				}, //
-				() -> {
-					// References:
-					// https://datatracker.ietf.org/doc/html/rfc2045
-					return charset -> {
-						return encoded -> {
-							StringReader reader = new StringReader(encoded);
-							ByteArrayOutputStream out = new ByteArrayOutputStream();
-							try {
-								int character;
-								List<Integer> whiteSpaces = new LinkedList<>();
-								Runnable whiteSpacesWriter = () -> {
-									whiteSpaces.forEach(out::write);
-									whiteSpaces.clear();
-								};
-								while ((character = reader.read()) != -1) {
-									if (character == 9 || character == 32) {
-										whiteSpaces.add(character);
-									} else if (character == codePointOf('\r')) {
-										whiteSpaces.clear();
-										out.write(character);
-										out.write(reader.read());// Assume \n
-									} else if (character == codePointOf('=')) {
-										whiteSpacesWriter.run();
-										char[] buffer = new char[2];
-										reader.read(buffer);
-										if (buffer[0] == codePointOf('\r') && buffer[1] == codePointOf('\n')) {
-											// Simple line break to fit 76 characters
-										} else {
-											int decodedCharacter = Integer.parseInt(new String(buffer), 16);
-											out.write(decodedCharacter);
-										}
-									} else if (33 <= character && character <= 60
-											|| 62 <= character && character <= 126) {
-										whiteSpacesWriter.run();
-										Character.toString(character);
-										out.write(character);
-									} else {
-										throw new RuntimeException("Not supported character: " + character);
-									}
-								}
-							} catch (IOException cause) {
-								throw new IllegalArgumentException("Cannot read: " + encoded);
-							}
-							return out.toString(charset);
-						};
-					};
-				}//
+				} //
 		), //
 		B(//
 				(encoded) -> {
@@ -1069,12 +1000,7 @@ public class MBoxParser {
 				}, //
 				(encoded, charset) -> {
 					return new String(Base64.getMimeDecoder().decode(encoded), charset);
-				}, //
-				() -> {
-					return charset -> encoded -> {
-						return new String(Base64.getMimeDecoder().decode(encoded), charset);
-					};
-				}//
+				} //
 		), //
 		Q(//
 				(encoded) -> {
@@ -1123,69 +1049,15 @@ public class MBoxParser {
 						throw new IllegalArgumentException("Cannot read: " + encoded);
 					}
 					return out.toString(charset);
-				}, //
-				() -> {
-					// References:
-					// https://datatracker.ietf.org/doc/html/rfc2047#section-4.2
-					return charset -> {
-						return encoded -> {
-							StringReader reader = new StringReader(encoded);
-							ByteArrayOutputStream out = new ByteArrayOutputStream();
-							try {
-								int character;
-								List<Integer> whiteSpaces = new LinkedList<>();
-								Runnable whiteSpacesWriter = () -> {
-									whiteSpaces.forEach(out::write);
-									whiteSpaces.clear();
-								};
-								while ((character = reader.read()) != -1) {
-									// TODO Finish
-									if (character == codePointOf('_')) {
-										whiteSpacesWriter.run();
-										out.write(' ');
-									} else if (character == 9 || character == 32) {
-										whiteSpaces.add(character);
-									} else if (character == codePointOf('\r')) {
-										whiteSpaces.clear();
-										out.write(character);
-										out.write(reader.read());// Assume \n
-									} else if (character == codePointOf('=')) {
-										whiteSpacesWriter.run();
-										char[] buffer = new char[2];
-										reader.read(buffer);
-										if (buffer[0] == codePointOf('\r') && buffer[1] == codePointOf('\n')) {
-											// Simple line break to fit 76 characters
-										} else {
-											int decodedCharacter = Integer.parseInt(new String(buffer), 16);
-											out.write(decodedCharacter);
-										}
-									} else if (33 <= character && character <= 60
-											|| 62 <= character && character <= 126) {
-										whiteSpacesWriter.run();
-										Character.toString(character);
-										out.write(character);
-									} else {
-										throw new RuntimeException("Not supported character: " + character);
-									}
-								}
-							} catch (IOException cause) {
-								throw new IllegalArgumentException("Cannot read: " + encoded);
-							}
-							return out.toString(charset);
-						};
-					};
-				}//
+				} //
 		);//
 
-		private final Function<Charset, UnaryOperator<String>> decoderFactory;
 		private final Function<String, byte[]> byteDecoder;
 		private final BiFunction<String, Charset, String> stringDecoder;
 
-		private Encoding(Function<String, byte[]> byteDecoder, BiFunction<String, Charset, String> stringDecoder,
-				Supplier<Function<Charset, UnaryOperator<String>>> decoderFactorySupplier) {
+		private Encoding(Function<String, byte[]> byteDecoder, BiFunction<String, Charset, String> stringDecoder) {
 			this.byteDecoder = byteDecoder;
 			this.stringDecoder = stringDecoder;
-			this.decoderFactory = decoderFactorySupplier.get();
 		}
 
 		Decoder decoder() {
