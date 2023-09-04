@@ -39,8 +39,8 @@ public interface DatasetsBuilder {
 				.forEach(entry -> {
 					Pair<String> namesPair = entry.getValue();
 					Pair<NamedAddressPredicate> predicatesPair = namesPair.map(nameToPredicate);
-					NamedAddressPredicate predicate1 = predicatesPair.a();
-					NamedAddressPredicate predicate2 = predicatesPair.b();
+					NamedAddressPredicate predicate1 = predicatesPair.item1();
+					NamedAddressPredicate predicate2 = predicatesPair.item2();
 
 					// Series
 					String name1 = predicate1.name();
