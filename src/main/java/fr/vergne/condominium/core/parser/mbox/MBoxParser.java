@@ -41,6 +41,7 @@ import fr.vergne.condominium.core.mail.Headers;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Body;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser.Encoding.Decoder.FromString;
+import fr.vergne.condominium.core.util.StringEscaper;
 
 public class MBoxParser {
 
@@ -153,13 +154,25 @@ public class MBoxParser {
 			)//
 					.filter(Optional::isPresent).map(Optional::get)//
 					.map(Header::body)//
-					.flatMap(addresses -> Stream.of(addresses.split(",")))//
+					.flatMap(addresses -> splitAddresses(addresses))//
 					.map(addressParser)//
 					.map(address -> Mail.Address.createWithCanonEmail(address.name(), address.email()));
 		};
 
 		return new Mail.Base(id, lines, parsed.headersSupplier(), parsed.bodySupplier(), receivedDateSupplier,
 				senderToSupplier, receiversSupplier);
+	}
+
+	private Stream<String> splitAddresses(String addresses) {
+		StringEscaper escaper = StringEscaper.Builder.create()//
+				.escapeWith('$')//
+				.whenEnclosedIn('"', sub -> sub.replace(',', 'µ'))//
+				.build();
+
+		return Stream.of(addresses)//
+				.map(escaper::escape)//
+				.flatMap(str -> Stream.of(str.split(",")))//
+				.map(escaper::unescape);
 	}
 
 	record Parsed(Supplier<Headers> headersSupplier, Supplier<Body> bodySupplier) {
