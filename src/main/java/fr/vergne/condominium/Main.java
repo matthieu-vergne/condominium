@@ -1,23 +1,29 @@
 package fr.vergne.condominium;
 
+import static java.util.Comparator.comparing;
+import static java.util.stream.Collectors.joining;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Mail;
+import fr.vergne.condominium.core.mail.Mail.Body;
+import fr.vergne.condominium.core.mail.MimeType;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser;
 import fr.vergne.condominium.core.parser.yaml.MailCleaningConfiguration;
 import fr.vergne.condominium.core.parser.yaml.PlotConfiguration;
 import fr.vergne.condominium.core.parser.yaml.ProfilesConfiguration;
 
 public class Main {
-	private static final Consumer<Object> logger = System.out::println;
+	private static final Consumer<Object> LOGGER = System.out::println;
 
 	public static void main(String[] args) throws IOException {
 		Path importFolderPath = Paths.get(System.getProperty("importFolder"));
@@ -34,64 +40,101 @@ public class Main {
 		Path plotCsPath = outFolderPath.resolve("graph2.png");
 		Path plotSyndicPath = outFolderPath.resolve("graph3.png");
 
-		MBoxParser parser = new MBoxParser(logger);
+		MBoxParser parser = new MBoxParser(LOGGER);
 		MailCleaningConfiguration confMailCleaning = MailCleaningConfiguration.parser().apply(confMailCleaningPath);
 		List<Mail> mails = parser.parseMBox(mboxPath)//
-				.peek(displayMail())//
+				.limit(69) // TODO Remove
+				.peek(displayMailOn(LOGGER))//
 				.filter(on(confMailCleaning))//
 				.toList();
 
-		logger.accept("=================");
+		LOGGER.accept("=================");
 
-		logger.accept("Associate mails to topics");
+		LOGGER.accept("Associate mails to topics");
 		// TODO Create topics
 		// TODO Associate emails to topic
+		Mail mail1 = mails.get(0);
+		displayMailOn(LOGGER).accept(mail1);
+		LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail1).text());
+		Mail mail2 = mails.get(45);
+		displayMailOn(LOGGER).accept(mail2);
+		LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail2).text());
+		Mail mail3 = mails.get(11);
+		displayMailOn(LOGGER).accept(mail3);
+		LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail3).text());
 		// TODO Associate email sections to topic
 
-		logger.accept("=================");
+		LOGGER.accept("=================");
 
-		logger.accept("Read profiles conf");
+		LOGGER.accept("Read profiles conf");
 		ProfilesConfiguration confProfiles = ProfilesConfiguration.parser().apply(confProfilesPath);
 
-		logger.accept("=================");
+		LOGGER.accept("=================");
 		{
 			// TODO Filter on mail predicate
-			logger.accept("Create mail history");
-			MailHistory.Factory mailHistoryFactory = new MailHistory.Factory.WithPlantUml(confProfiles, logger);
+			LOGGER.accept("Create mail history");
+			MailHistory.Factory mailHistoryFactory = new MailHistory.Factory.WithPlantUml(confProfiles, LOGGER);
 			MailHistory mailHistory = mailHistoryFactory.create(mails);
 			mailHistory.writeScript(historyScriptPath);
 			mailHistory.writeSvg(historyPath);
-			logger.accept("Done");
+			LOGGER.accept("Done");
 		}
 
-		logger.accept("=================");
+		LOGGER.accept("=================");
 		int diagramWidth = 1000;
 		int diagramHeightPerPlot = 250;
 		Diagram.Factory diagramFactory = new Diagram.Factory.WithJFreeChart(confProfiles.getGroups());
 		{
-			logger.accept("Read CS plot conf");
+			LOGGER.accept("Read CS plot conf");
 			PlotConfiguration confPlotCs = PlotConfiguration.parser().apply(confPlotCsPath);
-			logger.accept("Create plot");
+			LOGGER.accept("Create plot");
 			Diagram diagram = diagramFactory.ofSendReceive(confPlotCs).createDiagram(mails);
 			diagram.writePng(plotCsPath, diagramWidth, diagramHeightPerPlot);
-			logger.accept("Done");
+			LOGGER.accept("Done");
 		}
 		{
-			logger.accept("Read syndic plot conf");
+			LOGGER.accept("Read syndic plot conf");
 			PlotConfiguration confPlotSyndic = PlotConfiguration.parser().apply(confPlotSyndicPath);
-			logger.accept("Create plot");
+			LOGGER.accept("Create plot");
 			Diagram diagram = diagramFactory.ofSendReceive(confPlotSyndic).createDiagram(mails);
 			diagram.writePng(plotSyndicPath, diagramWidth, diagramHeightPerPlot);
-			logger.accept("Done");
+			LOGGER.accept("Done");
 		}
 	}
 
-	private static Consumer<Mail> displayMail() {
+	private static Mail.Body.Textual reduceToPlainOrHtmlBody(Mail mail) {
+		return (Mail.Body.Textual) Stream.of(mail.body())//
+				.flatMap(Main::flattenRecursively)//
+				.filter(body -> {
+					return body.mimeType().equals(MimeType.Text.PLAIN) //
+							|| body.mimeType().equals(MimeType.Text.HTML);
+				}).findFirst().orElseThrow();
+	}
+
+	private static Stream<? extends Body> flattenRecursively(Body body) {
+		return body instanceof Mail.Body.Composed composed //
+				? composed.bodies().stream().flatMap(Main::flattenRecursively) //
+				: Stream.of(body);
+	}
+
+	private static Consumer<Mail> displayMailOn(Consumer<Object> logger) {
 		int[] count = { 0 };
 		return mail -> {
 			++count[0];
-			logger.accept(count[0] + "> " + mail.lines().get(0));
+			logger.accept(count[0] + "> " + mail.lines().get(0) + " about: " + mail.subject());
 		};
+	}
+
+	private static String bodiesComposition(Body body) {
+		if (body instanceof Mail.Body.Composed composed) {
+			MimeType parentMimeType = body.mimeType();
+			String childrenComposition = composed.bodies().stream()//
+					.map(Main::bodiesComposition)//
+					.collect(joining(" + ", parentMimeType + "( ", " )"));
+			return childrenComposition;
+		} else {
+			return body.mimeType().toString();
+		}
 	}
 
 	private static Predicate<Mail> on(MailCleaningConfiguration confMailCleaning) {

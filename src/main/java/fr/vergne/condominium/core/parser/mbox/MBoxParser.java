@@ -40,6 +40,7 @@ import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Headers;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Body;
+import fr.vergne.condominium.core.mail.MimeType;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser.Encoding.Decoder.FromString;
 import fr.vergne.condominium.core.util.StringEscaper;
 
@@ -351,96 +352,96 @@ public class MBoxParser {
 		FromString stringDecoder = decoder.fromString(bodyContent);
 		Function<String, byte[]> bytesDecoder = decoder.forBytes();
 
-		Body body = headers.tryGet("Content-Type").map(ContentType::parse).map(contentType -> {
+		Body body = headers.tryGet("Content-Type").map(ContentType::parse).<Body>map(contentType -> {
 			Supplier<String> stringSupplier = () -> stringDecoder
 					.toString(contentType.charset().orElse(Charset.defaultCharset()));
 			Supplier<byte[]> bytesSupplier = () -> bytesDecoder.apply(bodyContent);
-			if (contentType.mainType().equals("text/plain")) {
-				return new PlainBody(stringSupplier.get());
-			} else if (contentType.mainType().equals("text/html")) {
-				return new HtmlBody(stringSupplier.get());
-			} else if (contentType.mainType().equals("text/x-amp-html")) {
-				return new AmpHtmlBody(stringSupplier.get());
-			} else if (contentType.mainType().equals("text/rfc822-headers")) {
+			if (contentType.mimeType().equals(MimeType.Text.PLAIN)) {
+				// TODO Deduplicate class + mime type
+				return new PlainBody(MimeType.Text.PLAIN, stringSupplier.get());
+			} else if (contentType.mimeType().equals(MimeType.Text.HTML)) {
+				return new HtmlBody(MimeType.Text.HTML, stringSupplier.get());
+			} else if (contentType.mimeType().equals(MimeType.Text.AMP)) {
+				return new AmpHtmlBody(MimeType.Text.AMP, stringSupplier.get());
+			} else if (contentType.mimeType().equals(MimeType.Text.RFC822_HEADERS)) {
 				// https://datatracker.ietf.org/doc/html/rfc1892#section-2
-				return new MessageHeadersBody(stringSupplier.get());
-			} else if (contentType.mainType().equals("message/rfc822")) {
+				return new MessageHeadersBody(MimeType.Text.RFC822_HEADERS, stringSupplier.get());
+			} else if (contentType.mimeType().equals(MimeType.Message.RFC822)) {
 				// https://datatracker.ietf.org/doc/html/rfc2046#section-5.2
-				return new MessageBody(stringSupplier.get());
-			} else if (contentType.mainType().equals("message/delivery-status")) {
+				return new MessageBody(MimeType.Message.RFC822, stringSupplier.get());
+			} else if (contentType.mimeType().equals(MimeType.Message.DELIVERY_STATUS)) {
 				// https://datatracker.ietf.org/doc/html/rfc3464#section-2.1
-				return new MessageStatusBody(stringSupplier.get());
-			} else if (contentType.mainType().equals("text/calendar")) {
-				return new CalendarBody(stringSupplier.get(), contentType.method().get());
-			} else if (contentType.mainType().equals("application/ics")) {
-				return new IcsBody(stringSupplier.get(), contentType.name().get());
-			} else if (contentType.mainType().equals("application/pdf")) {
-				return new PdfBody(bytesSupplier.get(), contentType.name().get());
-			} else if (contentType.mainType()
-					.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document")) {
-				return new DocxBody(bytesSupplier.get(), contentType.name().get());
-			} else if (contentType.mainType()
-					.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) {
-				return new XlsxBody(bytesSupplier.get(), contentType.name().get());
-			} else if (contentType.mainType().equals("image/png")) {
-				return new ImageBody(bytesSupplier.get(), ImageBody.Format.PNG);
-			} else if (contentType.mainType().equals("image/jpeg")) {
-				return new ImageBody(bytesSupplier.get(), ImageBody.Format.JPEG);
-			} else if (contentType.mainType().equals("image/gif")) {
-				return new ImageBody(bytesSupplier.get(), ImageBody.Format.GIF);
-			} else if (contentType.mainType().equals("image/heic")) {
-				return new ImageBody(bytesSupplier.get(), ImageBody.Format.HEIC);
-			} else if (contentType.mainType().equals("video/mp4")) {
-				return new VideoBody(bytesSupplier.get(), VideoBody.Format.MP4);
-			} else if (contentType.mainType().equals("multipart/mixed")) {
+				return new MessageStatusBody(MimeType.Message.DELIVERY_STATUS, stringSupplier.get());
+			} else if (contentType.mimeType().equals(MimeType.Text.CALENDAR)) {
+				return new CalendarBody(MimeType.Text.CALENDAR, stringSupplier.get(), contentType.method().get());
+			} else if (contentType.mimeType().equals(MimeType.Application.ICS)) {
+				return new IcsBody(MimeType.Application.ICS, stringSupplier.get(), contentType.name().get());
+			} else if (contentType.mimeType().equals(MimeType.Application.PDF)) {
+				return new PdfBody(MimeType.Application.PDF, bytesSupplier.get(), contentType.name().get());
+			} else if (contentType.mimeType().equals(MimeType.Application.WORD)) {
+				return new DocxBody(MimeType.Application.WORD, bytesSupplier.get(), contentType.name().get());
+			} else if (contentType.mimeType().equals(MimeType.Application.SPREADSHEET)) {
+				return new XlsxBody(MimeType.Application.SPREADSHEET, bytesSupplier.get(), contentType.name().get());
+			} else if (contentType.mimeType().equals(MimeType.Image.PNG)) {
+				return new ImageBody(MimeType.Image.PNG, bytesSupplier.get(), ImageBody.Format.PNG);
+			} else if (contentType.mimeType().equals(MimeType.Image.JPEG)) {
+				return new ImageBody(MimeType.Image.JPEG, bytesSupplier.get(), ImageBody.Format.JPEG);
+			} else if (contentType.mimeType().equals(MimeType.Image.GIF)) {
+				return new ImageBody(MimeType.Image.GIF, bytesSupplier.get(), ImageBody.Format.GIF);
+			} else if (contentType.mimeType().equals(MimeType.Image.HEIC)) {
+				return new ImageBody(MimeType.Image.HEIC, bytesSupplier.get(), ImageBody.Format.HEIC);
+			} else if (contentType.mimeType().equals(MimeType.Video.MP4)) {
+				return new VideoBody(MimeType.Video.MP4, bytesSupplier.get(), VideoBody.Format.MP4);
+			} else if (contentType.mimeType().equals(MimeType.Multipart.MIXED)) {
 				// References:
 				// https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.3
 				// TODO Check reference to properly parse it
 				// TODO Default multipart, or if not recognized, should be considered as mixed
 				String boundary = contentType.boundary().get();
 				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
-				return new MultiMixBody(Stream.of(bodyContent.split(boundaryRegex))//
+				return new MultiMixBody(MimeType.Multipart.MIXED, Stream.of(bodyContent.split(boundaryRegex))//
 						.skip(1)// Ignore first part
 						.map(part -> parse(part.lines().iterator()).body())//
 						.toList()//
 				);
-			} else if (contentType.mainType().equals("multipart/alternative")) {
+			} else if (contentType.mimeType().equals(MimeType.Multipart.ALTERNATIVE)) {
 				// References:
 				// https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.4
 				// TODO Check reference to properly parse it
 				String boundary = contentType.boundary().get();
 				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
-				return new MultiAltBody(Stream.of(bodyContent.split(boundaryRegex))//
+				return new MultiAltBody(MimeType.Multipart.ALTERNATIVE, Stream.of(bodyContent.split(boundaryRegex))//
 						.skip(1)// Ignore first part
 						.map(part -> parse(part.lines().iterator()).body())//
 						.toList()//
 				);
-			} else if (contentType.mainType().equals("multipart/related")) {
+			} else if (contentType.mimeType().equals(MimeType.Multipart.RELATED)) {
 				// References:
 				// https://datatracker.ietf.org/doc/html/rfc2387
 				// TODO Check reference to properly parse it
 				String boundary = contentType.boundary().get();
 				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
-				return new MultiRelBody(Stream.of(bodyContent.split(boundaryRegex))//
+				return new MultiRelBody(MimeType.Multipart.RELATED, Stream.of(bodyContent.split(boundaryRegex))//
 						.skip(1)// Ignore first part
 						.map(part -> parse(part.lines().iterator()).body())//
 						.toList());
-			} else if (contentType.mainType().equals("multipart/report")) {
+			} else if (contentType.mimeType().equals(MimeType.Multipart.REPORT)) {
 				// References:
 				// https://datatracker.ietf.org/doc/html/rfc6522
 				// TODO Check reference to properly parse it
 				String boundary = contentType.boundary().get();
 				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
-				return new MultiRepBody(Stream.of(bodyContent.split(boundaryRegex))//
+				return new MultiRepBody(MimeType.Multipart.REPORT, Stream.of(bodyContent.split(boundaryRegex))//
 						.skip(1)// Ignore first part
 						.map(part -> parse(part.lines().iterator()).body())//
 						.toList());
-			} else if (contentType.mainType().equals("application/octet-stream")) {
+			} else if (contentType.mimeType().equals(MimeType.Application.OCTET_STREAM)) {
 				// TODO Should we be careful of application/octet-stream for security?
 				// TODO Retrieve type from content if possible, otherwise from name
 				return contentType.name().map(name -> {
 					if (name.endsWith(".pdf")) {
-						return new PdfBody(bytesSupplier.get(), contentType.name().get());
+						return new PdfBody(MimeType.Application.OCTET_STREAM, bytesSupplier.get(),
+								contentType.name().get());
 					} else {
 						throw new RuntimeException("Not supported: " + name);
 					}
@@ -455,7 +456,7 @@ public class MBoxParser {
 
 	interface ContentType {
 
-		String mainType();
+		MimeType mimeType();
 
 		Optional<Charset> charset();
 
@@ -471,7 +472,7 @@ public class MBoxParser {
 			// TODO Parse reliably (which RFC?)
 			String contentType = header.body();
 			String[] split = contentType.split(";");
-			String mainType = split[0].trim();
+			MimeType mimeType = MimeType.parse(split[0].trim());
 			var wrapper = new Object() {
 				// TODO Check the purpose of each item
 				Optional<String> charset = Optional.empty();
@@ -482,6 +483,7 @@ public class MBoxParser {
 				Optional<String> method = Optional.empty();
 				Optional<String> name = Optional.empty();
 				Optional<String> reportType = Optional.empty();
+				Optional<String> differences = Optional.empty();
 			};
 			Stream.of(split).skip(1).map(String::trim).forEach(part -> {
 				String[] split2 = part.split("=", 2);
@@ -503,14 +505,16 @@ public class MBoxParser {
 					wrapper.name = Optional.of(unquote(value));
 				} else if (name.equals("report-type")) {
 					wrapper.reportType = Optional.of(unquote(value));
+				} else if (name.equals("differences")) {
+					wrapper.differences = Optional.of(value);
 				} else {
 					throw new RuntimeException("Not supported: " + name);
 				}
 			});
 			return new ContentType() {
 				@Override
-				public String mainType() {
-					return mainType;
+				public MimeType mimeType() {
+					return mimeType;
 				}
 
 				@Override
@@ -552,6 +556,33 @@ public class MBoxParser {
 		}
 	}
 
+	public static class BaseBody implements Mail.Body {
+		private final MimeType mimeType;
+
+		public BaseBody(MimeType mimeType) {
+			this.mimeType = mimeType;
+		}
+
+		@Override
+		public MimeType mimeType() {
+			return mimeType;
+		}
+	}
+
+	public static class BaseComposedBody extends BaseBody implements Mail.Body.Composed {
+		private final Collection<? extends Mail.Body> bodies;
+
+		public BaseComposedBody(Collection<? extends Mail.Body> bodies, MimeType mimeType) {
+			super(mimeType);
+			this.bodies = bodies;
+		}
+
+		@Override
+		public Collection<? extends Mail.Body> bodies() {
+			return bodies;
+		}
+	}
+
 	public static class RawBody implements Mail.Body {
 		private final String content;
 
@@ -560,18 +591,25 @@ public class MBoxParser {
 		}
 
 		@Override
+		public MimeType mimeType() {
+			throw new NoSuchElementException("No mime type provided");
+		}
+
+		@Override
 		public String toString() {
 			return "[RAW]\n" + content;
 		}
 	}
 
-	public static class PlainBody implements Mail.Body {
+	public static class PlainBody extends BaseBody implements Mail.Body.Textual {
 		private final String text;
 
-		public PlainBody(String text) {
+		public PlainBody(MimeType mimeType, String text) {
+			super(mimeType);
 			this.text = text;
 		}
 
+		@Override
 		public String text() {
 			return text;
 		}
@@ -582,14 +620,16 @@ public class MBoxParser {
 		}
 	}
 
-	public static class HtmlBody implements Mail.Body {
+	public static class HtmlBody extends BaseBody implements Mail.Body.Textual {
 		private final String html;
 
-		public HtmlBody(String html) {
+		public HtmlBody(MimeType mimeType, String html) {
+			super(mimeType);
 			this.html = html;
 		}
 
-		public String html() {
+		@Override
+		public String text() {
 			return html;
 		}
 
@@ -599,14 +639,16 @@ public class MBoxParser {
 		}
 	}
 
-	public static class AmpHtmlBody implements Mail.Body {
+	public static class AmpHtmlBody extends BaseBody implements Mail.Body.Textual {
 		private final String html;
 
-		public AmpHtmlBody(String html) {
+		public AmpHtmlBody(MimeType mimeType, String html) {
+			super(mimeType);
 			this.html = html;
 		}
 
-		public String html() {
+		@Override
+		public String text() {
 			return html;
 		}
 
@@ -616,10 +658,11 @@ public class MBoxParser {
 		}
 	}
 
-	public static class MessageBody implements Mail.Body {
+	public static class MessageBody extends BaseBody {
 		private final String message;
 
-		public MessageBody(String message) {
+		public MessageBody(MimeType mimeType, String message) {
+			super(mimeType);
 			this.message = message;
 		}
 
@@ -633,10 +676,11 @@ public class MBoxParser {
 		}
 	}
 
-	public static class MessageHeadersBody implements Mail.Body {
+	public static class MessageHeadersBody extends BaseBody {
 		private final String headers;
 
-		public MessageHeadersBody(String headers) {
+		public MessageHeadersBody(MimeType mimeType, String headers) {
+			super(mimeType);
 			this.headers = headers;
 		}
 
@@ -650,10 +694,11 @@ public class MBoxParser {
 		}
 	}
 
-	public static class MessageStatusBody implements Mail.Body {
+	public static class MessageStatusBody extends BaseBody {
 		private final String status;
 
-		public MessageStatusBody(String status) {
+		public MessageStatusBody(MimeType mimeType, String status) {
+			super(mimeType);
 			this.status = status;
 		}
 
@@ -667,11 +712,12 @@ public class MBoxParser {
 		}
 	}
 
-	public static class CalendarBody implements Mail.Body {
+	public static class CalendarBody extends BaseBody {
 		private final String script;
 		private final String method;
 
-		public CalendarBody(String script, String method) {
+		public CalendarBody(MimeType mimeType, String script, String method) {
+			super(mimeType);
 			this.script = script;
 			this.method = method;
 		}
@@ -690,11 +736,12 @@ public class MBoxParser {
 		}
 	}
 
-	public static class IcsBody implements Mail.Body {
+	public static class IcsBody extends BaseBody {
 		private final String script;
 		private final String name;
 
-		public IcsBody(String script, String name) {
+		public IcsBody(MimeType mimeType, String script, String name) {
+			super(mimeType);
 			this.script = script;
 			this.name = name;
 		}
@@ -713,11 +760,12 @@ public class MBoxParser {
 		}
 	}
 
-	public static class PdfBody implements Mail.Body {
+	public static class PdfBody extends BaseBody {
 		private final byte[] bytes;
 		private final String name;
 
-		public PdfBody(byte[] bytes, String name) {
+		public PdfBody(MimeType mimeType, byte[] bytes, String name) {
+			super(mimeType);
 			this.bytes = bytes;
 			this.name = name;
 		}
@@ -736,11 +784,12 @@ public class MBoxParser {
 		}
 	}
 
-	public static class DocxBody implements Mail.Body {
+	public static class DocxBody extends BaseBody {
 		private final byte[] bytes;
 		private final String name;
 
-		public DocxBody(byte[] bytes, String name) {
+		public DocxBody(MimeType mimeType, byte[] bytes, String name) {
+			super(mimeType);
 			this.bytes = bytes;
 			this.name = name;
 		}
@@ -759,11 +808,12 @@ public class MBoxParser {
 		}
 	}
 
-	public static class XlsxBody implements Mail.Body {
+	public static class XlsxBody extends BaseBody {
 		private final byte[] bytes;
 		private final String name;
 
-		public XlsxBody(byte[] bytes, String name) {
+		public XlsxBody(MimeType mimeType, byte[] bytes, String name) {
+			super(mimeType);
 			this.bytes = bytes;
 			this.name = name;
 		}
@@ -782,7 +832,7 @@ public class MBoxParser {
 		}
 	}
 
-	public static class ImageBody implements Mail.Body {
+	public static class ImageBody extends BaseBody {
 		private final byte[] bytes;
 		private final Format format;
 
@@ -790,7 +840,8 @@ public class MBoxParser {
 			PNG, JPEG, GIF, HEIC
 		}
 
-		public ImageBody(byte[] bytes, Format format) {
+		public ImageBody(MimeType mimeType, byte[] bytes, Format format) {
+			super(mimeType);
 			this.bytes = bytes;
 			this.format = format;
 		}
@@ -809,7 +860,7 @@ public class MBoxParser {
 		}
 	}
 
-	public static class VideoBody implements Mail.Body {
+	public static class VideoBody extends BaseBody {
 		private final byte[] bytes;
 		private final Format format;
 
@@ -817,7 +868,8 @@ public class MBoxParser {
 			MP4
 		}
 
-		public VideoBody(byte[] bytes, Format format) {
+		public VideoBody(MimeType mimeType, byte[] bytes, Format format) {
+			super(mimeType);
 			this.bytes = bytes;
 			this.format = format;
 		}
@@ -836,79 +888,55 @@ public class MBoxParser {
 		}
 	}
 
-	public static class MultiMixBody implements Mail.Body {
+	public static class MultiMixBody extends BaseComposedBody {
 
-		private final Collection<? extends Mail.Body> bodies;
-
-		public MultiMixBody(Collection<? extends Mail.Body> bodies) {
-			this.bodies = bodies;
-		}
-
-		public Collection<? extends Mail.Body> bodies() {
-			return bodies;
+		public MultiMixBody(MimeType mimeType, Collection<? extends Mail.Body> bodies) {
+			super(bodies, mimeType);
 		}
 
 		@Override
 		public String toString() {
-			return "[MULTI-MIX]" + bodies.size() + "\n"
-					+ bodies.stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
+			return "[MULTI-MIX]" + bodies().size() + "\n"
+					+ bodies().stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
 		}
 	}
 
-	public static class MultiAltBody implements Mail.Body {
+	public static class MultiAltBody extends BaseComposedBody {
 
-		private final Collection<? extends Mail.Body> bodies;
-
-		public MultiAltBody(Collection<? extends Mail.Body> bodies) {
-			this.bodies = bodies;
-		}
-
-		public Collection<? extends Mail.Body> bodies() {
-			return bodies;
+		public MultiAltBody(MimeType mimeType, Collection<? extends Mail.Body> bodies) {
+			super(bodies, mimeType);
 		}
 
 		@Override
 		public String toString() {
-			return "[MULTI-ALT]" + bodies.size() + "\n"
-					+ bodies.stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
+			return "[MULTI-ALT]" + bodies().size() + "\n"
+					+ bodies().stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
 		}
 	}
 
-	public static class MultiRelBody implements Mail.Body {
+	public static class MultiRelBody extends BaseComposedBody {
 
-		private final Collection<? extends Mail.Body> bodies;
-
-		public MultiRelBody(Collection<? extends Mail.Body> bodies) {
-			this.bodies = bodies;
-		}
-
-		public Collection<? extends Mail.Body> bodies() {
-			return bodies;
+		public MultiRelBody(MimeType mimeType, Collection<? extends Mail.Body> bodies) {
+			super(bodies, mimeType);
 		}
 
 		@Override
 		public String toString() {
-			return "[MULTI-MIX]" + bodies.size() + "\n"
-					+ bodies.stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
+			return "[MULTI-MIX]" + bodies().size() + "\n"
+					+ bodies().stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
 		}
 	}
 
-	public static class MultiRepBody implements Mail.Body {
+	public static class MultiRepBody extends BaseComposedBody {
 
-		private final Collection<? extends Mail.Body> bodies;
-
-		public MultiRepBody(Collection<? extends Mail.Body> bodies) {
-			this.bodies = bodies;
-		}
-
-		public Collection<? extends Mail.Body> bodies() {
-			return bodies;
+		public MultiRepBody(MimeType mimeType, Collection<? extends Mail.Body> bodies) {
+			super(bodies, mimeType);
 		}
 
 		@Override
 		public String toString() {
-			return "[MULTI-MIX]" + bodies.size() + "\n"
-					+ bodies.stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
+			return "[MULTI-MIX]" + bodies().size() + "\n"
+					+ bodies().stream().map(Object::toString).collect(Collectors.joining("\n-----\n"));
 		}
 	}
 

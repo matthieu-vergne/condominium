@@ -1,6 +1,7 @@
 package fr.vergne.condominium.core.mail;
 
 import java.time.ZonedDateTime;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -54,6 +55,18 @@ public interface Mail {
 	}
 
 	public interface Body {
+
+		MimeType mimeType();
+
+		public static interface Textual extends Body {
+			String text();
+		}
+
+		public static interface Composed extends Body {
+
+			Collection<? extends Body> bodies();
+
+		}
 
 	}
 
