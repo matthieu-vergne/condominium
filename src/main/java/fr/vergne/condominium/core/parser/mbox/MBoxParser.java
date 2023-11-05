@@ -802,7 +802,7 @@ public class MBoxParser {
 		LinkedList<String> unfoldedLines = new LinkedList<>();
 		for (String line : lines) {
 			if (line.startsWith(" ") || line.startsWith("\t")) {
-				unfoldedLines.add(unfoldedLines.removeLast() + line);
+				unfoldedLines.add(unfoldedLines.removeLast() + line.substring(1));
 			} else {
 				unfoldedLines.add(line);
 			}
