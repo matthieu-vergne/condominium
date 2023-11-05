@@ -3,6 +3,7 @@ package fr.vergne.condominium.core.issue;
 import java.time.ZonedDateTime;
 import java.util.Collection;
 import java.util.LinkedList;
+import java.util.stream.Stream;
 
 import fr.vergne.condominium.core.mail.Mail;
 
@@ -15,7 +16,11 @@ public interface Issue {
 	void notifyByMail(Mail mail, Status status);
 
 	default Status currentStatus() {
-		return history().lastItem().status();
+		return history().stream()//
+				.map(History.Item::status)//
+				// TODO No need to go further if we find the max
+				.max(Status::compareTo)//
+				.orElseThrow();
 	}
 
 	public static Issue create(String issueTitle) {
@@ -46,7 +51,7 @@ public interface Issue {
 
 	public interface History {
 
-		Item lastItem();
+		Stream<Item> stream();
 
 		void add(Item item);
 
@@ -58,10 +63,8 @@ public interface Issue {
 			return new History() {
 
 				@Override
-				public Item lastItem() {
-					return items.stream().reduce((i1, i2) -> {
-						return i1.datetime.compareTo(i2.datetime) < 0 ? i1 : i2;
-					}).orElseThrow();
+				public Stream<Item> stream() {
+					return items.stream();
 				}
 
 				@Override

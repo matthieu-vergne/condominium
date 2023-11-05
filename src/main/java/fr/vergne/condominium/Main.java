@@ -45,7 +45,7 @@ public class Main {
 		// TODO Mail repository
 		// TODO Mail identity
 		// TODO Mail persistence
-		// TODO Compare to other repository
+		// TODO Diff with other repository
 		// TODO Merge repositories
 		List<Mail> mails = parser.parseMBox(mboxPath)//
 				.filter(on(confMailCleaning))//
