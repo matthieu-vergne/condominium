@@ -1,5 +1,7 @@
 package fr.vergne.condominium;
 
+import static java.util.Comparator.comparing;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -10,6 +12,7 @@ import java.util.stream.Stream;
 
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
+import fr.vergne.condominium.core.issue.Issue;
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Body;
@@ -39,29 +42,35 @@ public class Main {
 
 		MBoxParser parser = new MBoxParser(LOGGER);
 		MailCleaningConfiguration confMailCleaning = MailCleaningConfiguration.parser().apply(confMailCleaningPath);
+		// TODO Mail repository
+		// TODO Mail identity
+		// TODO Mail persistence
+		// TODO Compare to other repository
+		// TODO Merge repositories
 		List<Mail> mails = parser.parseMBox(mboxPath)//
-				.limit(69) // TODO Remove
-				.peek(displayMailOn(LOGGER))//
 				.filter(on(confMailCleaning))//
+				.sorted(comparing(Mail::receivedDate))//
+				.limit(3)// TODO Remove
+				.peek(displayMailOn(LOGGER))//
 				.toList();
 
 		LOGGER.accept("=================");
 		{
-			LOGGER.accept("Associate mails to topics");
-			// TODO Create topics
-			// TODO Associate emails to topic
-			Mail mail1 = mails.get(0);
-			displayMailOn(LOGGER).accept(mail1);
-			LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail1).text());
-			Mail mail2 = mails.get(45);
-			displayMailOn(LOGGER).accept(mail2);
-			LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail2).text());
-			Mail mail3 = mails.get(11);
-			displayMailOn(LOGGER).accept(mail3);
-			LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail3).text());
-			// TODO Associate email sections to topic
-			// TODO Create topic status (ordered)
-			// TODO Associate status to email-topic relationships
+			LOGGER.accept("Associate mails to issues");
+			// TODO Retrieve mail from mail repository through ID
+			// TODO Update issue status from email
+			// TODO Notify with email section
+			// TODO Issue repository
+			LOGGER.accept("**********************");
+			Mail mail = mails.get(mails.size()-1);
+			LOGGER.accept("From: "+mail.sender());
+			LOGGER.accept("To: "+mail.receivers().toList());
+			LOGGER.accept("At: "+mail.receivedDate());
+			LOGGER.accept("Subject: "+mail.subject());
+			LOGGER.accept("Body:");
+			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
+			Issue issue = Issue.create("Panne de chauffage");
+			issue.notifyByMail(mail, Issue.Status.REPORTED);
 		}
 
 		LOGGER.accept("=================");
@@ -120,8 +129,8 @@ public class Main {
 	private static Consumer<Mail> displayMailOn(Consumer<Object> logger) {
 		int[] count = { 0 };
 		return mail -> {
-			++count[0];
 			logger.accept(count[0] + "> " + mail.lines().get(0) + " about: " + mail.subject());
+			count[0]++;
 		};
 	}
 
