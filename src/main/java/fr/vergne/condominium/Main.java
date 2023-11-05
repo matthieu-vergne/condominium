@@ -1,8 +1,5 @@
 package fr.vergne.condominium;
 
-import static java.util.Comparator.comparing;
-import static java.util.stream.Collectors.joining;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -49,20 +46,23 @@ public class Main {
 				.toList();
 
 		LOGGER.accept("=================");
-
-		LOGGER.accept("Associate mails to topics");
-		// TODO Create topics
-		// TODO Associate emails to topic
-		Mail mail1 = mails.get(0);
-		displayMailOn(LOGGER).accept(mail1);
-		LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail1).text());
-		Mail mail2 = mails.get(45);
-		displayMailOn(LOGGER).accept(mail2);
-		LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail2).text());
-		Mail mail3 = mails.get(11);
-		displayMailOn(LOGGER).accept(mail3);
-		LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail3).text());
-		// TODO Associate email sections to topic
+		{
+			LOGGER.accept("Associate mails to topics");
+			// TODO Create topics
+			// TODO Associate emails to topic
+			Mail mail1 = mails.get(0);
+			displayMailOn(LOGGER).accept(mail1);
+			LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail1).text());
+			Mail mail2 = mails.get(45);
+			displayMailOn(LOGGER).accept(mail2);
+			LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail2).text());
+			Mail mail3 = mails.get(11);
+			displayMailOn(LOGGER).accept(mail3);
+			LOGGER.accept(">>> " + reduceToPlainOrHtmlBody(mail3).text());
+			// TODO Associate email sections to topic
+			// TODO Create topic status (ordered)
+			// TODO Associate status to email-topic relationships
+		}
 
 		LOGGER.accept("=================");
 
@@ -123,18 +123,6 @@ public class Main {
 			++count[0];
 			logger.accept(count[0] + "> " + mail.lines().get(0) + " about: " + mail.subject());
 		};
-	}
-
-	private static String bodiesComposition(Body body) {
-		if (body instanceof Mail.Body.Composed composed) {
-			MimeType parentMimeType = body.mimeType();
-			String childrenComposition = composed.bodies().stream()//
-					.map(Main::bodiesComposition)//
-					.collect(joining(" + ", parentMimeType + "( ", " )"));
-			return childrenComposition;
-		} else {
-			return body.mimeType().toString();
-		}
 	}
 
 	private static Predicate<Mail> on(MailCleaningConfiguration confMailCleaning) {

@@ -62,6 +62,14 @@ public interface Mail {
 			String text();
 		}
 
+		public static interface Binary extends Body {
+			byte[] bytes();
+		}
+
+		public static interface Named extends Body {
+			String name();
+		}
+
 		public static interface Composed extends Body {
 
 			Collection<? extends Body> bodies();
