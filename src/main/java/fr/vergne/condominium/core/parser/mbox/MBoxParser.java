@@ -117,7 +117,7 @@ public class MBoxParser {
 		return StreamSupport.stream(Spliterators.spliteratorUnknownSize(mailsIterator, 0), false);
 	}
 
-	private Mail parseMail(List<String> lines) {
+	public Mail parseMail(List<String> lines) {
 		// TODO Support RFCs
 		// rfc822/rfc2822/rfc3522 Message format
 		// rfc934 Message Forwarding
