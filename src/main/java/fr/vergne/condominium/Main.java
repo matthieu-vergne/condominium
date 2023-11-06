@@ -169,11 +169,11 @@ public class Main {
 				throw new RuntimeException("Cannot browse " + mailRepositoryPath);
 			}
 		};
-		FileRepository<Mail, MailId> mailRepository = new FileRepository<Mail, MailId>(//
+
+		return new FileRepository<Mail, MailId>(//
 				identifier, //
 				resourceSerializer, resourceDeserializer, //
 				pathResolver, pathFinder);
-		return mailRepository;
 	}
 
 	private static Mail.Body.Textual reduceToPlainOrHtmlBody(Mail mail) {
