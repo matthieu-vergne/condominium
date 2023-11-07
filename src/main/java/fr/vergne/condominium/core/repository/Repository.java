@@ -9,6 +9,8 @@ public interface Repository<R, K> {
 
 	Optional<K> key(R resource);
 
+	boolean has(K key);
+
 	R get(K key) throws UnknownResourceKeyException;
 
 	R remove(K key) throws UnknownResourceKeyException;

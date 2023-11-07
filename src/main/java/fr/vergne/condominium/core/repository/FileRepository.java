@@ -57,6 +57,12 @@ public class FileRepository<R, K> implements Repository<R, K> {
 	}
 
 	@Override
+	public boolean has(K key) {
+		Path path = pathResolver.apply(key);
+		return exists(path);
+	}
+
+	@Override
 	public R get(K key) throws UnknownResourceKeyException {
 		Path path = pathResolver.apply(key);
 		if (!exists(path)) {
