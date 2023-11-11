@@ -6,26 +6,45 @@ import java.util.stream.Stream;
 public interface RepositoryDiff {
 
 	static <R, K> Stream<Diff<R, K>> diff(Repository<R, K> repo1, Repository<R, K> repo2) {
-		Stream<Diff<R, K>> replacementsAndRemovals = repo1.streamResources()//
-				.map(resource -> {
-					K key1 = repo1.key(resource).get();
-					if (repo2.has(key1) && !repo2.mustGet(key1).equals(resource)) {
-						return Diff.replaceResource(key1, resource, repo2.mustGet(key1));
-					} else {
-						Optional<K> key2 = repo2.key(resource);
-						if (!repo2.has(key1) && key2.isEmpty()) {
-							return Diff.remove(key1, resource);
-						} else if (key2.isPresent() && !key2.get().equals(key1)) {
-							return Diff.replaceKey(key1, key2.get(), resource);
-						} else {
-							return null;
+		Stream<Diff<R, K>> replacementsAndRemovals = repo1.stream()//
+				.map(entry1 -> {
+					K key1 = entry1.getKey();
+					R resource1 = entry1.getValue();
+
+					boolean repo2HasK1 = repo2.has(key1);
+					if (repo2HasK1) {
+						R resource2 = repo2.mustGet(key1);
+						if (!resource1.equals(resource2)) {
+							return Diff.replaceResource(key1, resource1, resource2);
 						}
 					}
+
+					Optional<K> repo2KeyForR1 = repo2.key(resource1);
+					if (repo2KeyForR1.isPresent()) {
+						K key2 = repo2KeyForR1.get();
+						if (!key1.equals(key2)) {
+							return Diff.replaceKey(key1, key2, resource1);
+						}
+					}
+
+					if (!repo2HasK1 && repo2KeyForR1.isEmpty()) {
+						return Diff.remove(key1, resource1);
+					}
+
+					return null;
 				}).filter(x -> x != null);
 
-		Stream<Diff<R, K>> additions = repo2.streamResources()//
-				.filter(resource -> !repo1.has(repo2.key(resource).get()) && repo1.key(resource).isEmpty())
-				.map(resource -> Diff.add(repo2.key(resource).get(), resource));
+		Stream<Diff<R, K>> additions = repo2.stream()//
+				.map(entry2 -> {
+					K key2 = entry2.getKey();
+					R resource2 = entry2.getValue();
+
+					if (!repo1.has(key2) && repo1.key(resource2).isEmpty()) {
+						return Diff.add(key2, resource2);
+					}
+
+					return null;
+				}).filter(x -> x != null);
 
 		return Stream.concat(replacementsAndRemovals, additions);
 	}
