@@ -1,12 +1,11 @@
 package fr.vergne.condominium.core.repository;
 
-import static java.util.Collections.emptyList;
 import static java.util.Collections.emptySet;
 import static java.util.stream.Collectors.toSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -140,12 +139,12 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo1 = new Repository<String, Integer>() {
 
 			@Override
-			public Stream<String> stream() {
-				return map1.values().stream();
+			public Stream<Entry<Integer, String>> stream() {
+				return map1.entrySet().stream();
 			}
 
 			@Override
-			public String remove(Integer key) throws UnknownResourceKeyException {
+			public Optional<String> remove(Integer key) {
 				throw new RuntimeException("Not supported");
 			}
 
@@ -155,8 +154,8 @@ class RepositoryDiffTest {
 			}
 
 			@Override
-			public String get(Integer key) throws UnknownResourceKeyException {
-				return map1.get(key);
+			public Optional<String> get(Integer key) {
+				return Optional.ofNullable(map1.get(key));
 			}
 
 			@Override

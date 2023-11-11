@@ -3,6 +3,7 @@ package fr.vergne.condominium.core.repository;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -41,27 +42,37 @@ public class MemoryRepository<R, K> implements Repository<R, K> {
 	}
 
 	@Override
-	public R get(K key) throws UnknownResourceKeyException {
+	public Optional<R> get(K key) {
 		R resource = resources.get(key);
 		if (resources == null) {
-			throw new UnknownResourceKeyException(key);
+			return Optional.empty();
 		} else {
-			return resource;
+			return Optional.of(resource);
 		}
 	}
 
 	@Override
-	public R remove(K key) throws UnknownResourceKeyException {
+	public Optional<R> remove(K key) {
 		R resource = resources.remove(key);
 		if (resources == null) {
-			throw new UnknownResourceKeyException(key);
+			return Optional.empty();
 		} else {
-			return resource;
+			return Optional.of(resource);
 		}
 	}
 
 	@Override
-	public Stream<R> stream() {
+	public Stream<Entry<K, R>> stream() {
+		return resources.entrySet().stream();
+	}
+
+	@Override
+	public Stream<K> streamKeys() {
+		return resources.keySet().stream();
+	}
+
+	@Override
+	public Stream<R> streamResources() {
 		return resources.values().stream();
 	}
 

@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -31,6 +33,9 @@ import fr.vergne.condominium.core.parser.yaml.MailCleaningConfiguration;
 import fr.vergne.condominium.core.parser.yaml.PlotConfiguration;
 import fr.vergne.condominium.core.parser.yaml.ProfilesConfiguration;
 import fr.vergne.condominium.core.repository.FileRepository;
+import fr.vergne.condominium.core.repository.MemoryRepository;
+import fr.vergne.condominium.core.repository.Repository;
+import fr.vergne.condominium.core.repository.RepositoryDiff;
 
 public class Main {
 	private static final Consumer<Object> LOGGER = System.out::println;
@@ -51,20 +56,21 @@ public class Main {
 		Path plotSyndicPath = outFolderPath.resolve("graph3.png");
 		Path mailRepositoryPath = outFolderPath.resolve("mails");
 
-		FileRepository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
-
 		MBoxParser parser = new MBoxParser(LOGGER);
 		MailCleaningConfiguration confMailCleaning = MailCleaningConfiguration.parser().apply(confMailCleaningPath);
+		Repository<Mail, MailId> mboxRepository = new MemoryRepository<>(MailId::fromMail, new LinkedHashMap<>());
 		List<Mail> mails = parser.parseMBox(mboxPath)//
 				.filter(on(confMailCleaning))//
 				.peek(displayMailOn(LOGGER))//
 				.sorted(comparing(Mail::receivedDate))//
 				.limit(3)// TODO Remove
-				.toList();
+				.peek(mboxRepository::add).toList();
 
 		// TODO Diff with other repository
 		// TODO Merge repositories
-		mails.stream()//
+		Repository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
+		RepositoryDiff.diff(mailRepository, mboxRepository);
+		mboxRepository.streamResources()//
 				.filter(mail -> mailRepository.key(mail).isEmpty())//
 				.peek(mail -> LOGGER.accept("Import mail " + MailId.fromMail(mail)))//
 				.forEach(mailRepository::add);

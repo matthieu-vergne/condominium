@@ -1,5 +1,6 @@
 package fr.vergne.condominium.core.repository;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -11,11 +12,27 @@ public interface Repository<R, K> {
 
 	boolean has(K key);
 
-	R get(K key) throws UnknownResourceKeyException;
+	Optional<R> get(K key);
 
-	R remove(K key) throws UnknownResourceKeyException;
+	default R mustGet(K key) throws UnknownResourceKeyException {
+		return get(key).orElseThrow(() -> new UnknownResourceKeyException(key));
+	}
 
-	Stream<R> stream();
+	Optional<R> remove(K key);
+
+	default R mustRemove(K key) throws UnknownResourceKeyException {
+		return remove(key).orElseThrow(() -> new UnknownResourceKeyException(key));
+	}
+
+	Stream<Map.Entry<K, R>> stream();
+
+	default Stream<K> streamKeys() {
+		return stream().map(Map.Entry::getKey);
+	}
+
+	default Stream<R> streamResources() {
+		return stream().map(Map.Entry::getValue);
+	}
 
 	@SuppressWarnings("serial")
 	public static class UnknownResourceKeyException extends RuntimeException {

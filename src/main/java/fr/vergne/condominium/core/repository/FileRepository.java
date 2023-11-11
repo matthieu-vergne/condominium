@@ -8,6 +8,8 @@ import static java.nio.file.Files.write;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -63,10 +65,10 @@ public class FileRepository<R, K> implements Repository<R, K> {
 	}
 
 	@Override
-	public R get(K key) throws UnknownResourceKeyException {
+	public Optional<R> get(K key) {
 		Path path = pathResolver.apply(key);
 		if (!exists(path)) {
-			throw new UnknownResourceKeyException(key);
+			return Optional.empty();
 		}
 		byte[] bytes;
 		try {
@@ -75,14 +77,14 @@ public class FileRepository<R, K> implements Repository<R, K> {
 			throw new CannotReadFileException(key, path, cause);
 		}
 		R resource = resourceDeserializer.apply(bytes);
-		return resource;
+		return Optional.of(resource);
 	}
 
 	@Override
-	public R remove(K key) throws UnknownResourceKeyException {
+	public Optional<R> remove(K key) {
 		Path path = pathResolver.apply(key);
 		if (!exists(path)) {
-			throw new UnknownResourceKeyException(key);
+			return Optional.empty();
 		}
 		byte[] bytes;
 		try {
@@ -96,11 +98,11 @@ public class FileRepository<R, K> implements Repository<R, K> {
 		} catch (IOException cause) {
 			throw new CannotDeleteFileException(key, path, cause);
 		}
-		return resource;
+		return Optional.of(resource);
 	}
 
 	@Override
-	public Stream<R> stream() {
+	public Stream<R> streamResources() {
 		return pathFinder.get().map(path -> {
 			try {
 				return readAllBytes(path);
@@ -108,6 +110,19 @@ public class FileRepository<R, K> implements Repository<R, K> {
 				throw new CannotReadFileException(path, cause);
 			}
 		}).map(resourceDeserializer);
+	}
+
+	@Override
+	public Stream<K> streamKeys() {
+		return streamResources().map(identifier);
+	}
+
+	@Override
+	public Stream<Entry<K, R>> stream() {
+		return streamResources().map(resource -> {
+			K key = identifier.apply(resource);
+			return Map.entry(key, resource);
+		});
 	}
 
 	@SuppressWarnings("serial")
