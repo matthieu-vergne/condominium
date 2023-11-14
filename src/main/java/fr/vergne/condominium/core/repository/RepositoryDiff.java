@@ -1,5 +1,8 @@
 package fr.vergne.condominium.core.repository;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -28,7 +31,79 @@ public interface RepositoryDiff<R, K> {
 	}
 
 	default void apply(Repository<R, K> targetRepository) {
-		// TODO Apply diff to repo
+		Map<K, R> addMap = new HashMap<>();
+		Map<K, R> delMap = new HashMap<>();
+		Map<K, Map.Entry<R, R>> resMap = new HashMap<>();
+		Map<R, Map.Entry<K, K>> keyMap = new HashMap<>();
+
+		Consumer<ResourceDiff<R, K>> additionListener = resDiff -> addMap.put(resDiff.newKey(), resDiff.newResource());
+		Consumer<ResourceDiff<R, K>> removalListener = resDiff -> delMap.put(resDiff.oldKey(), resDiff.oldResource());
+		Consumer<ResourceDiff<R, K>> replacementListener = resDiff -> resMap.put(resDiff.oldKey(),
+				Map.entry(resDiff.oldResource(), resDiff.newResource()));
+		Consumer<ResourceDiff<R, K>> reidentifyListener = resDiff -> keyMap.put(resDiff.oldResource(),
+				Map.entry(resDiff.oldKey(), resDiff.newKey()));
+
+		collect(additionListener, removalListener, replacementListener, reidentifyListener);
+
+		try {
+
+		} catch (Exception cause) {
+			throw new IllegalArgumentException("Incompatible repository: " + targetRepository, cause);
+		}
+		addMap.entrySet().forEach(entry -> {
+			R resource = entry.getValue();
+			K actualKey = targetRepository.add(resource);
+			K expectedKey = entry.getKey();
+			if (!actualKey.equals(expectedKey)) {
+				throw new InvalidApplyException(targetRepository,
+						"adding " + resource + " create " + actualKey + " instead of " + expectedKey);
+			}
+		});
+		delMap.entrySet().forEach(entry -> {
+			K key = entry.getKey();
+			R expectedResource = entry.getValue();
+			R actualResource = targetRepository.remove(key).orElse(null);
+			if (!actualResource.equals(expectedResource)) {
+				throw new InvalidApplyException(targetRepository,
+						"removing " + key + " returns " + actualResource + " instead of " + expectedResource);
+			}
+		});
+		resMap.entrySet().forEach(entry -> {
+			K key = entry.getKey();
+			Entry<R, R> resources = entry.getValue();
+			R oldResource = resources.getKey();
+			R newResource = resources.getValue();
+
+			R removedResource = targetRepository.remove(key).orElse(null);
+			if (!removedResource.equals(oldResource)) {
+				throw new InvalidApplyException(targetRepository,
+						"replacing " + key + " returns " + removedResource + " instead of " + oldResource);
+			}
+
+			K newKey = targetRepository.add(newResource);
+			if (!newKey.equals(key)) {
+				throw new InvalidApplyException(targetRepository,
+						"replacing " + key + " with " + newResource + " reidentify as " + newKey);
+			}
+		});
+		keyMap.entrySet().forEach(entry -> {
+			R resource = entry.getKey();
+			Entry<K, K> keys = entry.getValue();
+			K oldKey = keys.getKey();
+			K newKey = keys.getValue();
+
+			R removedResource = targetRepository.remove(oldKey).orElse(null);
+			if (!removedResource.equals(resource)) {
+				throw new InvalidApplyException(targetRepository,
+						"reidentifying " + oldKey + " returns " + removedResource + " instead of " + resource);
+			}
+
+			K createdKey = targetRepository.add(resource);
+			if (!createdKey.equals(newKey)) {
+				throw new InvalidApplyException(targetRepository,
+						"reidentifying " + resource + " returns " + createdKey + " instead of " + newKey);
+			}
+		});
 	}
 
 	static <R, K> RepositoryDiff<R, K> diff(Repository<R, K> repo1, Repository<R, K> repo2) {
@@ -111,6 +186,13 @@ public interface RepositoryDiff<R, K> {
 
 		public boolean isKeyReplacement() {
 			return oldResource == newResource;
+		}
+	}
+
+	@SuppressWarnings("serial")
+	public static class InvalidApplyException extends IllegalArgumentException {
+		public InvalidApplyException(Repository<?, ?> targetRepository, String reason) {
+			super("Incompatible repository " + targetRepository + ": " + reason);
 		}
 	}
 }

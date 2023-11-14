@@ -4,6 +4,7 @@ import java.time.ZonedDateTime;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -42,6 +43,22 @@ public interface Mail {
 				@Override
 				public String email() {
 					return canonEmail;
+				}
+
+				@Override
+				public boolean equals(Object obj) {
+					if (obj == this) {
+						return true;
+					} else if (obj instanceof Address that) {
+						return Objects.equals(this.email(), that.email());
+					} else {
+						return false;
+					}
+				}
+
+				@Override
+				public int hashCode() {
+					return Objects.hash(email());
 				}
 
 				@Override

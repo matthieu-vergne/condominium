@@ -4,17 +4,13 @@ import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.find;
 import static java.nio.file.Files.isRegularFile;
 import static java.util.Comparator.comparing;
-import static java.util.stream.Collectors.filtering;
 import static java.util.stream.Collectors.joining;
-import static java.util.stream.Collectors.teeing;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,22 +66,21 @@ public class Main {
 				.filter(on(confMailCleaning))//
 				.peek(displayMailOn(LOGGER))//
 				.sorted(comparing(Mail::receivedDate))//
+				.peek(mboxRepository::add)//
 				.limit(3)// TODO Remove
-				.peek(mboxRepository::add).toList();
+				.toList();
 
-		// TODO Diff with other repository
-		// TODO Merge repositories
 		Repository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
 		LOGGER.accept("--- DIFF ---");
 		RepositoryDiff<Mail, MailId> repoDiff = RepositoryDiff.diff(mailRepository, mboxRepository);
 		report(repoDiff);
 		LOGGER.accept("--- /DIFF ---");
-		repoDiff.apply(mailRepository);
-		mboxRepository.streamResources()//
-				.filter(mail -> mailRepository.key(mail).isEmpty())//
-				.peek(mail -> LOGGER.accept("Import mail " + MailId.fromMail(mail)))//
-		// .forEach(mailRepository::add)
-		;
+		repoDiff.apply(mailRepository.decorate()//
+				.postAdd((id, mail) -> LOGGER.accept("Imported mail " + id))//
+				.preDel((id) -> {
+					throw new RuntimeException("Reject removal of " + id);
+				})//
+				.build());
 
 		LOGGER.accept("=================");
 		{

@@ -4,11 +4,12 @@ import static java.util.Collections.emptySet;
 import static java.util.stream.Collectors.toSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
@@ -116,7 +117,7 @@ class RepositoryDiffTest {
 	}
 
 	@Test
-	void testCombinedCase() {
+	void testDiffCombinedCase() {
 		// GIVEN
 		Repository<String, Integer> repo1 = createRepository(Map.of(1, "removed", 3, "old", 4, "moved"));
 		Repository<String, Integer> repo2 = createRepository(Map.of(2, "added", 3, "new", 5, "moved"));
@@ -133,42 +134,132 @@ class RepositoryDiffTest {
 		), diff.stream().collect(toSet()));
 	}
 
-	private Repository<String, Integer> createRepository(Map<Integer, String> map1) {
-		Map<String, Integer> map2 = map1.entrySet().stream()
-				.collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
-		Repository<String, Integer> repo1 = new Repository<String, Integer>() {
+	@Test
+	void testApplyOnAddition() {
+		// GIVEN
+		Repository<String, Integer> repo1 = createRepository(new HashMap<>(), str -> 1);
+		Repository<String, Integer> repo2 = createRepository(Map.of(1, "a"));
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+
+		// WHEN
+		diff.apply(repo1);
+
+		// THEN
+		assertEquals(repo2.stream().collect(toSet()), repo1.stream().collect(toSet()));
+	}
+
+	@Test
+	void testApplyOnRemoval() {
+		// GIVEN
+		Repository<String, Integer> repo1 = createRepository(new HashMap<>(Map.of(1, "a")));
+		Repository<String, Integer> repo2 = createRepository(Map.of());
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+
+		// WHEN
+		diff.apply(repo1);
+
+		// THEN
+		assertEquals(repo2.stream().collect(toSet()), repo1.stream().collect(toSet()));
+	}
+
+	@Test
+	void testApplyOnKeyReplacement() {
+		// GIVEN
+		Repository<String, Integer> repo1 = createRepository(new HashMap<>(Map.of(1, "a")), str -> 2);
+		Repository<String, Integer> repo2 = createRepository(Map.of(2, "a"));
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+
+		// WHEN
+		diff.apply(repo1);
+
+		// THEN
+		assertEquals(repo2.stream().collect(toSet()), repo1.stream().collect(toSet()));
+	}
+
+	@Test
+	void testApplyOnResourceReplacement() {
+		// GIVEN
+		Repository<String, Integer> repo1 = createRepository(new HashMap<>(Map.of(1, "a")), str -> 1);
+		Repository<String, Integer> repo2 = createRepository(Map.of(1, "b"));
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+
+		// WHEN
+		diff.apply(repo1);
+
+		// THEN
+		assertEquals(repo2.stream().collect(toSet()), repo1.stream().collect(toSet()));
+	}
+
+	@Test
+	void testApplyCombinedCase() {
+		// GIVEN
+		Repository<String, Integer> repo1 = createRepository(//
+				new HashMap<>(Map.of(1, "removed", 3, "old", 4, "moved")), //
+				str -> {
+					return switch (str) {
+					case "added" -> 2;
+					case "new" -> 3;
+					case "moved" -> 5;
+					default -> 0;
+					};
+				}//
+		);
+		Repository<String, Integer> repo2 = createRepository(Map.of(2, "added", 3, "new", 5, "moved"));
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+
+		// WHEN
+		diff.apply(repo1);
+
+		// THEN
+		assertEquals(repo2.stream().collect(toSet()), repo1.stream().collect(toSet()));
+	}
+
+	private Repository<String, Integer> createRepository(Map<Integer, String> map) {
+		Function<String, Integer> identifier = str -> {
+			throw new RuntimeException("Not supported");
+		};
+		return createRepository(map, identifier);
+	}
+
+	private Repository<String, Integer> createRepository(Map<Integer, String> map,
+			Function<String, Integer> identifier) {
+		return new Repository<String, Integer>() {
 
 			@Override
 			public Stream<Entry<Integer, String>> stream() {
-				return map1.entrySet().stream();
+				return map.entrySet().stream();
 			}
 
 			@Override
 			public Optional<String> remove(Integer key) {
-				throw new RuntimeException("Not supported");
+				return Optional.ofNullable(map.remove(key));
 			}
 
 			@Override
 			public Optional<Integer> key(String resource) {
-				return Optional.ofNullable(map2.get(resource));
+				return map.entrySet().stream()//
+						.filter(entry -> entry.getValue().equals(resource))//
+						.map(Map.Entry::getKey)//
+						.findFirst();
 			}
 
 			@Override
 			public Optional<String> get(Integer key) {
-				return Optional.ofNullable(map1.get(key));
+				return Optional.ofNullable(map.get(key));
 			}
 
 			@Override
 			public boolean has(Integer key) {
-				return map1.containsKey(key);
+				return map.containsKey(key);
 			}
 
 			@Override
 			public Integer add(String resource) throws AlredyExistingResourceKeyException {
-				throw new RuntimeException("Not supported");
+				Integer key = identifier.apply(resource);
+				map.put(key, resource);
+				return key;
 			}
 		};
-		return repo1;
 	}
 
 }
