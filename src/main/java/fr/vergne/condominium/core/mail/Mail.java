@@ -155,5 +155,21 @@ public interface Mail {
 		public String toString() {
 			return id + " at " + receivedDateSupplier;
 		}
+
+		@Override
+		public boolean equals(Object obj) {
+			if (obj == this) {
+				return true;
+			} else if (obj instanceof Mail that) {
+				return Objects.equals(this.lines(), that.lines());
+			} else {
+				return false;
+			}
+		}
+
+		@Override
+		public int hashCode() {
+			return Objects.hash(lines());
+		}
 	}
 }

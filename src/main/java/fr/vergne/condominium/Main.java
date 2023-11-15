@@ -6,6 +6,7 @@ import static java.nio.file.Files.isRegularFile;
 import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.joining;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,6 +27,7 @@ import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.issue.Issue;
 import fr.vergne.condominium.core.mail.Header;
+import fr.vergne.condominium.core.mail.SoftReferencedMail;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Address;
 import fr.vergne.condominium.core.mail.Mail.Body;
@@ -65,9 +67,9 @@ public class Main {
 		List<Mail> mails = parser.parseMBox(mboxPath)//
 				.filter(on(confMailCleaning))//
 				.peek(displayMailOn(LOGGER))//
-				.sorted(comparing(Mail::receivedDate))//
+				// .sorted(comparing(Mail::receivedDate))//
 				.peek(mboxRepository::add)//
-				.limit(3)// TODO Remove
+				// .limit(3)// TODO Remove
 				.toList();
 
 		Repository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
@@ -75,9 +77,11 @@ public class Main {
 		RepositoryDiff<Mail, MailId> repoDiff = RepositoryDiff.diff(mailRepository, mboxRepository);
 		report(repoDiff);
 		LOGGER.accept("--- /DIFF ---");
+		// TODO Check replacements
 		repoDiff.apply(mailRepository.decorate()//
 				.postAdd((id, mail) -> LOGGER.accept("Imported mail " + id))//
 				.preDel((id) -> {
+					// TODO Ignore removals
 					throw new RuntimeException("Reject removal of " + id);
 				})//
 				.build());
@@ -90,7 +94,10 @@ public class Main {
 			// TODO Notify with email section
 			// TODO Issue repository
 			LOGGER.accept("**********************");
-			Mail mail = mails.get(mails.size() - 1);
+			Mail mail = mailRepository.streamResources()//
+					.sorted(comparing(Mail::receivedDate))//
+					.skip(2)//
+					.findFirst().get();
 			LOGGER.accept("From: " + mail.sender());
 			LOGGER.accept("To: " + mail.receivers().toList());
 			LOGGER.accept("At: " + mail.receivedDate());
@@ -188,23 +195,27 @@ public class Main {
 		Function<Mail, byte[]> resourceSerializer = (mail) -> {
 			return mail.lines().stream().collect(joining("\n")).getBytes();
 		};
-		Function<byte[], Mail> resourceDeserializer = (bytes) -> {
-			return repositoryParser.parseMail(new String(bytes).lines().toList());
+		Function<Supplier<byte[]>, Mail> resourceDeserializer = (bytesSupplier) -> {
+			return new SoftReferencedMail(() -> {
+				byte[] bytes = bytesSupplier.get();
+				List<String> lines = new String(bytes).lines().toList();
+				return repositoryParser.parseMail(lines);
+			});
 		};
 
 		String mailExtension = ".mail";
 		try {
 			createDirectories(mailRepositoryPath);
 		} catch (IOException cause) {
-			throw new RuntimeException("Cannot create mail repository directory: " + mailRepositoryPath);
+			throw new RuntimeException("Cannot create mail repository directory: " + mailRepositoryPath, cause);
 		}
 		Function<MailId, Path> pathResolver = (id) -> {
-			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.datetime);
+			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.datetime).replace('-', File.separatorChar);
 			Path dayDirectory = mailRepositoryPath.resolve(datePart);
 			try {
 				createDirectories(dayDirectory);
 			} catch (IOException cause) {
-				throw new RuntimeException("Cannot create mail directory: " + dayDirectory);
+				throw new RuntimeException("Cannot create mail directory: " + dayDirectory, cause);
 			}
 
 			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.datetime).replace(':', '-');
@@ -213,9 +224,11 @@ public class Main {
 		};
 		Supplier<Stream<Path>> pathFinder = () -> {
 			try {
-				return find(mailRepositoryPath, 1, (path, attr) -> path.endsWith(mailExtension) && isRegularFile(path));
+				return find(mailRepositoryPath, Integer.MAX_VALUE, (path, attr) -> {
+					return path.toString().endsWith(mailExtension) && isRegularFile(path);
+				});
 			} catch (IOException cause) {
-				throw new RuntimeException("Cannot browse " + mailRepositoryPath);
+				throw new RuntimeException("Cannot browse " + mailRepositoryPath, cause);
 			}
 		};
 

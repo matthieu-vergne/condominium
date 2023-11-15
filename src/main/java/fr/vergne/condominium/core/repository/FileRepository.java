@@ -18,12 +18,12 @@ public class FileRepository<R, K> implements Repository<R, K> {
 
 	private Function<R, K> identifier;
 	private Function<R, byte[]> resourceSerializer;
-	private Function<byte[], R> resourceDeserializer;
+	private Function<Supplier<byte[]>, R> resourceDeserializer;
 	private Function<K, Path> pathResolver;
 	private Supplier<Stream<Path>> pathFinder;
 
 	public FileRepository(Function<R, K> identifier, Function<R, byte[]> resourceSerializer,
-			Function<byte[], R> resourceDeserializer, Function<K, Path> pathResolver,
+			Function<Supplier<byte[]>, R> resourceDeserializer, Function<K, Path> pathResolver,
 			Supplier<Stream<Path>> pathFinder) {
 		this.identifier = identifier;
 		this.pathFinder = pathFinder;
@@ -70,13 +70,13 @@ public class FileRepository<R, K> implements Repository<R, K> {
 		if (!exists(path)) {
 			return Optional.empty();
 		}
-		byte[] bytes;
-		try {
-			bytes = readAllBytes(path);
-		} catch (IOException cause) {
-			throw new CannotReadFileException(key, path, cause);
-		}
-		R resource = resourceDeserializer.apply(bytes);
+		R resource = resourceDeserializer.apply(() -> {
+			try {
+				return readAllBytes(path);
+			} catch (IOException cause) {
+				throw new CannotReadFileException(key, path, cause);
+			}
+		});
 		return Optional.of(resource);
 	}
 
@@ -92,7 +92,7 @@ public class FileRepository<R, K> implements Repository<R, K> {
 		} catch (IOException cause) {
 			throw new CannotReadFileException(key, path, cause);
 		}
-		R resource = resourceDeserializer.apply(bytes);
+		R resource = resourceDeserializer.apply(() -> bytes);
 		try {
 			delete(path);
 		} catch (IOException cause) {
@@ -104,12 +104,14 @@ public class FileRepository<R, K> implements Repository<R, K> {
 	@Override
 	public Stream<R> streamResources() {
 		return pathFinder.get().map(path -> {
-			try {
-				return readAllBytes(path);
-			} catch (IOException cause) {
-				throw new CannotReadFileException(path, cause);
-			}
-		}).map(resourceDeserializer);
+			return resourceDeserializer.apply(() -> {
+				try {
+					return readAllBytes(path);
+				} catch (IOException cause) {
+					throw new CannotReadFileException(path, cause);
+				}
+			});
+		});
 	}
 
 	@Override

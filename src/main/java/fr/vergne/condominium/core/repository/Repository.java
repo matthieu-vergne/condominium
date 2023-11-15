@@ -50,6 +50,7 @@ public interface Repository<R, K> {
 	}
 
 	default Decorator<R, K> decorate() {
+		Repository<R, K> delegate = this;
 		var decorations = new Object() {
 			Optional<Consumer<R>> preAdd = Optional.empty();
 			Optional<BiConsumer<K, R>> postAdd = Optional.empty();
@@ -101,37 +102,37 @@ public interface Repository<R, K> {
 					@Override
 					public K add(R resource) throws AlredyExistingResourceKeyException {
 						decorations.preAdd.ifPresent(consumer -> consumer.accept(resource));
-						K key = this.add(resource);
+						K key = delegate.add(resource);
 						decorations.postAdd.ifPresent(consumer -> consumer.accept(key, resource));
 						return key;
 					}
 
 					@Override
 					public Optional<K> key(R resource) {
-						return this.key(resource);
+						return delegate.key(resource);
 					}
 
 					@Override
 					public boolean has(K key) {
-						return this.has(key);
+						return delegate.has(key);
 					}
 
 					@Override
 					public Optional<R> get(K key) {
-						return this.get(key);
+						return delegate.get(key);
 					}
 
 					@Override
 					public Optional<R> remove(K key) {
 						decorations.preDel.ifPresent(consumer -> consumer.accept(key));
-						Optional<R> resource = this.remove(key);
+						Optional<R> resource = delegate.remove(key);
 						resource.ifPresent(res -> decorations.postDel.ifPresent(consumer -> consumer.accept(key, res)));
 						return resource;
 					}
 
 					@Override
 					public Stream<Entry<K, R>> stream() {
-						return this.stream();
+						return delegate.stream();
 					}
 				};
 			}
