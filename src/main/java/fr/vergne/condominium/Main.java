@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,7 +78,6 @@ public class Main {
 		RepositoryDiff<Mail, MailId> repoDiff = RepositoryDiff.diff(mailRepository, mboxRepository);
 		report(repoDiff);
 		LOGGER.accept("--- /DIFF ---");
-		// TODO Check replacements
 		repoDiff.apply(mailRepository.decorate()//
 				.postAdd((id, mail) -> LOGGER.accept("Imported mail " + id))//
 				.preDel((id) -> {
@@ -198,7 +198,8 @@ public class Main {
 		Function<Supplier<byte[]>, Mail> resourceDeserializer = (bytesSupplier) -> {
 			return new SoftReferencedMail(() -> {
 				byte[] bytes = bytesSupplier.get();
-				List<String> lines = new String(bytes).lines().toList();
+				// Use split with negative limit to retain empty strings
+				List<String> lines = Arrays.asList(new String(bytes).split("\n", -1));
 				return repositoryParser.parseMail(lines);
 			});
 		};
