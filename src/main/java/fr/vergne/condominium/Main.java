@@ -60,52 +60,25 @@ public class Main {
 		Path plotSyndicPath = outFolderPath.resolve("graph3.png");
 		Path mailRepositoryPath = outFolderPath.resolve("mails");
 
-		MBoxParser parser = new MBoxParser(LOGGER);
-		MailCleaningConfiguration confMailCleaning = MailCleaningConfiguration.parser().apply(confMailCleaningPath);
-		Repository<Mail, MailId> mboxRepository = new MemoryRepository<>(MailId::fromMail, new LinkedHashMap<>());
-		List<Mail> mails = parser.parseMBox(mboxPath)//
-				.filter(on(confMailCleaning))//
-				// .limit(40)// TODO Remove
-				.peek(displayMailOn(LOGGER))//
-				// .sorted(comparing(Mail::receivedDate))//
-				.peek(mboxRepository::add)//
-				.toList();
-
 		Repository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
+
 		LOGGER.accept("--- UPDATE ---");
-		RepositoryDiff.of(mailRepository, mboxRepository)//
-				.stream()//
-				.peek(diff -> {
-					Values<Mail, MailId> values = diff.values();
-					if (diff.is(Action.ADDITION)) {
-						LOGGER.accept("Add \"" + values.newResource().subject() + "\" " + values.newKey());
-					} else if (diff.is(Action.REMOVAL)) {
-						LOGGER.accept("[pass] Remove \"" + values.oldResource().subject() + "\" " + values.oldKey());
-					} else if (diff.is(Action.RESOURCE_REPLACEMENT)) {
-						LOGGER.accept("Replace \"" + values.oldResource().subject() + "\" by \""
-								+ values.newResource().subject() + "\" at " + values.oldKey());
-					} else if (diff.is(Action.KEY_REPLACEMENT)) {
-						LOGGER.accept("Reidentify \"" + values.oldResource().subject() + "\" from " + values.oldKey()
-								+ " to " + values.newKey());
-					} else {
-						throw new RuntimeException("Not supported: " + diff);
-					}
-				})//
-				.filter(diff -> !diff.is(Action.REMOVAL))//
-				.forEach(diff -> diff.applyTo(mailRepository));
+		updateMailsExceptRemovals(loadMBox(mboxPath, confMailCleaningPath), mailRepository);
 		LOGGER.accept("--- /UPDATE ---");
 
+		List<Mail> mails = mailRepository.streamResources().toList();
 		LOGGER.accept("=================");
 		{
 			LOGGER.accept("Associate mails to issues");
-			// TODO Retrieve mail from mail repository through ID
+			// TODO Retrieve mail from ID
 			// TODO Update issue status from email
 			// TODO Notify with email section
 			// TODO Issue repository
 			LOGGER.accept("**********************");
-			Mail mail = mailRepository.streamResources()//
+			Mail mail = mails.stream()//
 					.sorted(comparing(Mail::receivedDate))//
 					.skip(2)//
+					.peek(LOGGER)// TODO Remove
 					.findFirst().get();
 			LOGGER.accept("From: " + mail.sender());
 			LOGGER.accept("To: " + mail.receivers().toList());
@@ -153,6 +126,43 @@ public class Main {
 			diagram.writePng(plotSyndicPath, diagramWidth, diagramHeightPerPlot);
 			LOGGER.accept("Done");
 		}
+	}
+
+	private static void updateMailsExceptRemovals(Repository<Mail, MailId> mboxRepository,
+			Repository<Mail, MailId> mailRepository) {
+		RepositoryDiff.of(mailRepository, mboxRepository)//
+				.stream()//
+				.peek(diff -> {
+					Values<Mail, MailId> values = diff.values();
+					if (diff.is(Action.ADDITION)) {
+						LOGGER.accept("Add \"" + values.newResource().subject() + "\" " + values.newKey());
+					} else if (diff.is(Action.REMOVAL)) {
+						LOGGER.accept("[pass] Remove \"" + values.oldResource().subject() + "\" " + values.oldKey());
+					} else if (diff.is(Action.RESOURCE_REPLACEMENT)) {
+						LOGGER.accept("Replace \"" + values.oldResource().subject() + "\" by \""
+								+ values.newResource().subject() + "\" at " + values.oldKey());
+					} else if (diff.is(Action.KEY_REPLACEMENT)) {
+						LOGGER.accept("Reidentify \"" + values.oldResource().subject() + "\" from " + values.oldKey()
+								+ " to " + values.newKey());
+					} else {
+						throw new RuntimeException("Not supported: " + diff);
+					}
+				})//
+				.filter(diff -> !diff.is(Action.REMOVAL))//
+				.forEach(diff -> diff.applyTo(mailRepository));
+	}
+
+	private static Repository<Mail, MailId> loadMBox(Path mboxPath, Path confMailCleaningPath) {
+		MBoxParser parser = new MBoxParser(LOGGER);
+		MailCleaningConfiguration confMailCleaning = MailCleaningConfiguration.parser().apply(confMailCleaningPath);
+		Repository<Mail, MailId> mboxRepository = new MemoryRepository<>(MailId::fromMail, new LinkedHashMap<>());
+		parser.parseMBox(mboxPath)//
+				.filter(on(confMailCleaning))//
+				// .limit(40)// TODO Remove
+				.peek(displayMailOn(LOGGER))//
+				// .sorted(comparing(Mail::receivedDate))//
+				.forEach(mboxRepository::add);
+		return mboxRepository;
 	}
 
 	record MailId(ZonedDateTime datetime, Address sender) {
