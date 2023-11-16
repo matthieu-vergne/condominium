@@ -3,6 +3,8 @@ package fr.vergne.condominium.core.repository;
 import static java.util.Collections.emptySet;
 import static java.util.stream.Collectors.toSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -13,17 +15,44 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff;
+import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Values;
+import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Action;
 
 class RepositoryDiffTest {
 
-	@Test
-	void testDiffActions() {
-		assertEquals(new ResourceDiff<>(null, null, 1, "a"), ResourceDiff.add(1, "a"));
-		assertEquals(new ResourceDiff<>(1, "a", null, null), ResourceDiff.remove(1, "a"));
-		assertEquals(new ResourceDiff<>(1, "a", 2, "a"), ResourceDiff.replaceKey(1, 2, "a"));
-		assertEquals(new ResourceDiff<>(1, "a", 1, "b"), ResourceDiff.replaceResource(1, "a", "b"));
+	static Stream<Arguments> testDiffValue() {
+		return Stream.of(//
+				arguments(ResourceDiff.add(1, "a"), new Values<>(null, null, 1, "a")), //
+				arguments(ResourceDiff.remove(1, "a"), new Values<>(1, "a", null, null)), //
+				arguments(ResourceDiff.replaceKey(1, 2, "a"), new Values<>(1, "a", 2, "a")), //
+				arguments(ResourceDiff.replaceResource(1, "a", "b"), new Values<>(1, "a", 1, "b"))//
+		);
+	}
+
+	@ParameterizedTest
+	@MethodSource
+	void testDiffValue(ResourceDiff<String, Integer> diff, Values<String, Integer> values) {
+		assertEquals(values, diff.values());
+	}
+
+	static Stream<Arguments> testDiffAction() {
+		return Stream.of(//
+				arguments(ResourceDiff.add(1, "a"), Action.ADDITION), //
+				arguments(ResourceDiff.remove(1, "a"), Action.REMOVAL), //
+				arguments(ResourceDiff.replaceKey(1, 2, "a"), Action.KEY_REPLACEMENT), //
+				arguments(ResourceDiff.replaceResource(1, "a", "b"), Action.RESOURCE_REPLACEMENT)//
+		);
+	}
+
+	@ParameterizedTest
+	@MethodSource
+	void testDiffAction(ResourceDiff<String, Integer> diff, Action action) {
+		assertTrue(diff.is(action));
 	}
 
 	@Test
@@ -32,7 +61,7 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo = createRepository(Map.of(1, "a", 2, "b"));
 
 		// WHEN
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo, repo);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo, repo);
 
 		// THEN
 		assertEquals(emptySet(), diff.stream().collect(toSet()));
@@ -45,7 +74,7 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo2 = createRepository(Map.of(1, "a", 2, "b"));
 
 		// WHEN
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2);
 
 		// THEN
 		assertEquals(emptySet(), diff.stream().collect(toSet()));
@@ -58,7 +87,7 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo2 = createRepository(Map.of());
 
 		// WHEN
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2);
 
 		// THEN
 		assertEquals(emptySet(), diff.stream().collect(toSet()));
@@ -71,7 +100,7 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo2 = createRepository(Map.of(1, "a"));
 
 		// WHEN
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2);
 
 		// THEN
 		assertEquals(Set.of(ResourceDiff.add(1, "a")), diff.stream().collect(toSet()));
@@ -84,7 +113,7 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo2 = createRepository(Map.of());
 
 		// WHEN
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2);
 
 		// THEN
 		assertEquals(Set.of(ResourceDiff.remove(1, "a")), diff.stream().collect(toSet()));
@@ -97,7 +126,7 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo2 = createRepository(Map.of(2, "a"));
 
 		// WHEN
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2);
 
 		// THEN
 		assertEquals(Set.of(ResourceDiff.replaceKey(1, 2, "a")), diff.stream().collect(toSet()));
@@ -110,7 +139,7 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo2 = createRepository(Map.of(1, "b"));
 
 		// WHEN
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2);
 
 		// THEN
 		assertEquals(Set.of(ResourceDiff.replaceResource(1, "a", "b")), diff.stream().collect(toSet()));
@@ -123,7 +152,7 @@ class RepositoryDiffTest {
 		Repository<String, Integer> repo2 = createRepository(Map.of(2, "added", 3, "new", 5, "moved"));
 
 		// WHEN
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2);
 
 		// THEN
 		assertEquals(Set.of(//
@@ -139,7 +168,7 @@ class RepositoryDiffTest {
 		// GIVEN
 		Repository<String, Integer> repo1 = createRepository(new HashMap<>(), str -> 1);
 		Repository<String, Integer> repo2 = createRepository(Map.of(1, "a"));
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2).snapshot();
 
 		// WHEN
 		diff.apply(repo1);
@@ -153,7 +182,7 @@ class RepositoryDiffTest {
 		// GIVEN
 		Repository<String, Integer> repo1 = createRepository(new HashMap<>(Map.of(1, "a")));
 		Repository<String, Integer> repo2 = createRepository(Map.of());
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2).snapshot();
 
 		// WHEN
 		diff.apply(repo1);
@@ -167,7 +196,7 @@ class RepositoryDiffTest {
 		// GIVEN
 		Repository<String, Integer> repo1 = createRepository(new HashMap<>(Map.of(1, "a")), str -> 2);
 		Repository<String, Integer> repo2 = createRepository(Map.of(2, "a"));
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2).snapshot();
 
 		// WHEN
 		diff.apply(repo1);
@@ -181,7 +210,7 @@ class RepositoryDiffTest {
 		// GIVEN
 		Repository<String, Integer> repo1 = createRepository(new HashMap<>(Map.of(1, "a")), str -> 1);
 		Repository<String, Integer> repo2 = createRepository(Map.of(1, "b"));
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2).snapshot();
 
 		// WHEN
 		diff.apply(repo1);
@@ -205,7 +234,7 @@ class RepositoryDiffTest {
 				}//
 		);
 		Repository<String, Integer> repo2 = createRepository(Map.of(2, "added", 3, "new", 5, "moved"));
-		RepositoryDiff<String, Integer> diff = RepositoryDiff.diff(repo1, repo2);
+		RepositoryDiff<String, Integer> diff = RepositoryDiff.of(repo1, repo2).snapshot();
 
 		// WHEN
 		diff.apply(repo1);

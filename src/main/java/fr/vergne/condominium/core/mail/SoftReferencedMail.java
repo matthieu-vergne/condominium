@@ -69,4 +69,9 @@ public class SoftReferencedMail implements Mail {
 	public int hashCode() {
 		return retrieveMail().hashCode();
 	}
+
+	@Override
+	public String toString() {
+		return retrieveMail().toString();
+	}
 }

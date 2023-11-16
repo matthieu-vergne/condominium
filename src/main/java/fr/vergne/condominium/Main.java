@@ -13,11 +13,8 @@ import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -28,11 +25,11 @@ import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.issue.Issue;
 import fr.vergne.condominium.core.mail.Header;
-import fr.vergne.condominium.core.mail.SoftReferencedMail;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Address;
 import fr.vergne.condominium.core.mail.Mail.Body;
 import fr.vergne.condominium.core.mail.MimeType;
+import fr.vergne.condominium.core.mail.SoftReferencedMail;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser;
 import fr.vergne.condominium.core.parser.yaml.MailCleaningConfiguration;
 import fr.vergne.condominium.core.parser.yaml.PlotConfiguration;
@@ -41,7 +38,8 @@ import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.MemoryRepository;
 import fr.vergne.condominium.core.repository.Repository;
 import fr.vergne.condominium.core.repository.RepositoryDiff;
-import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff;
+import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Action;
+import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Values;
 
 public class Main {
 	private static final Consumer<Object> LOGGER = System.out::println;
@@ -67,24 +65,35 @@ public class Main {
 		Repository<Mail, MailId> mboxRepository = new MemoryRepository<>(MailId::fromMail, new LinkedHashMap<>());
 		List<Mail> mails = parser.parseMBox(mboxPath)//
 				.filter(on(confMailCleaning))//
+				// .limit(40)// TODO Remove
 				.peek(displayMailOn(LOGGER))//
 				// .sorted(comparing(Mail::receivedDate))//
 				.peek(mboxRepository::add)//
-				// .limit(3)// TODO Remove
 				.toList();
 
 		Repository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
-		LOGGER.accept("--- DIFF ---");
-		RepositoryDiff<Mail, MailId> repoDiff = RepositoryDiff.diff(mailRepository, mboxRepository);
-		report(repoDiff);
-		LOGGER.accept("--- /DIFF ---");
-		repoDiff.apply(mailRepository.decorate()//
-				.postAdd((id, mail) -> LOGGER.accept("Imported mail " + id))//
-				.preDel((id) -> {
-					// TODO Ignore removals
-					throw new RuntimeException("Reject removal of " + id);
+		LOGGER.accept("--- UPDATE ---");
+		RepositoryDiff.of(mailRepository, mboxRepository)//
+				.stream()//
+				.peek(diff -> {
+					Values<Mail, MailId> values = diff.values();
+					if (diff.is(Action.ADDITION)) {
+						LOGGER.accept("Add \"" + values.newResource().subject() + "\" " + values.newKey());
+					} else if (diff.is(Action.REMOVAL)) {
+						LOGGER.accept("[pass] Remove \"" + values.oldResource().subject() + "\" " + values.oldKey());
+					} else if (diff.is(Action.RESOURCE_REPLACEMENT)) {
+						LOGGER.accept("Replace \"" + values.oldResource().subject() + "\" by \""
+								+ values.newResource().subject() + "\" at " + values.oldKey());
+					} else if (diff.is(Action.KEY_REPLACEMENT)) {
+						LOGGER.accept("Reidentify \"" + values.oldResource().subject() + "\" from " + values.oldKey()
+								+ " to " + values.newKey());
+					} else {
+						throw new RuntimeException("Not supported: " + diff);
+					}
 				})//
-				.build());
+				.filter(diff -> !diff.is(Action.REMOVAL))//
+				.forEach(diff -> diff.applyTo(mailRepository));
+		LOGGER.accept("--- /UPDATE ---");
 
 		LOGGER.accept("=================");
 		{
@@ -144,42 +153,6 @@ public class Main {
 			diagram.writePng(plotSyndicPath, diagramWidth, diagramHeightPerPlot);
 			LOGGER.accept("Done");
 		}
-	}
-
-	private static void report(RepositoryDiff<Mail, MailId> mailRepositoryDiff) {
-		Comparator<MailId> mailIdComparator = comparing(MailId::datetime).thenComparing(MailId::sender,
-				comparing(Address::email));
-		Map<MailId, Mail> addMap = new TreeMap<>(mailIdComparator);
-		Map<MailId, Mail> delMap = new TreeMap<>(mailIdComparator);
-		Map<MailId, Map.Entry<Mail, Mail>> resMap = new TreeMap<>(mailIdComparator);
-		Map<Mail, Map.Entry<MailId, MailId>> keyMap = new TreeMap<>(comparing(MailId::fromMail, mailIdComparator));
-
-		Consumer<ResourceDiff<Mail, MailId>> additionListener = resDiff -> addMap.put(resDiff.newKey(),
-				resDiff.newResource());
-		Consumer<ResourceDiff<Mail, MailId>> removalListener = resDiff -> delMap.put(resDiff.oldKey(),
-				resDiff.oldResource());
-		Consumer<ResourceDiff<Mail, MailId>> replacementListener = resDiff -> resMap.put(resDiff.oldKey(),
-				Map.entry(resDiff.oldResource(), resDiff.newResource()));
-		Consumer<ResourceDiff<Mail, MailId>> reidentifyListener = resDiff -> keyMap.put(resDiff.oldResource(),
-				Map.entry(resDiff.oldKey(), resDiff.newKey()));
-
-		mailRepositoryDiff.collect(additionListener, removalListener, replacementListener, reidentifyListener);
-
-		DateTimeFormatter datetimeFormatter = java.time.format.DateTimeFormatter.ISO_DATE_TIME;
-		Function<MailId, String> idFormatter = id -> datetimeFormatter.format(id.datetime) + " by " + id.sender;
-		Function<Mail, String> mailFormatter = mail -> '"' + mail.subject() + '"';
-		delMap.entrySet().forEach(entry -> LOGGER.accept(
-				"Remove " + mailFormatter.apply(entry.getValue()) + " at " + idFormatter.apply(entry.getKey())));
-		addMap.entrySet().forEach(entry -> LOGGER
-				.accept("Add " + mailFormatter.apply(entry.getValue()) + " at " + idFormatter.apply(entry.getKey())));
-		resMap.entrySet()
-				.forEach(entry -> LOGGER.accept("Replace " + mailFormatter.apply(entry.getValue().getKey()) + " by "
-						+ mailFormatter.apply(entry.getValue().getValue()) + " at "
-						+ idFormatter.apply(entry.getKey())));
-		keyMap.entrySet()
-				.forEach(entry -> LOGGER.accept("Move " + mailFormatter.apply(entry.getKey()) + " from "
-						+ idFormatter.apply(entry.getValue().getKey()) + " to "
-						+ idFormatter.apply(entry.getValue().getValue())));
 	}
 
 	record MailId(ZonedDateTime datetime, Address sender) {
