@@ -47,13 +47,8 @@ public interface Mail {
 
 				@Override
 				public boolean equals(Object obj) {
-					if (obj == this) {
-						return true;
-					} else if (obj instanceof Address that) {
-						return Objects.equals(this.email(), that.email());
-					} else {
-						return false;
-					}
+					return obj instanceof Address that//
+							&& Objects.equals(this.email(), that.email());
 				}
 
 				@Override
@@ -158,13 +153,8 @@ public interface Mail {
 
 		@Override
 		public boolean equals(Object obj) {
-			if (obj == this) {
-				return true;
-			} else if (obj instanceof Mail that) {
-				return Objects.equals(this.lines(), that.lines());
-			} else {
-				return false;
-			}
+			return obj instanceof Mail that //
+					&& Objects.equals(this.lines(), that.lines());
 		}
 
 		@Override

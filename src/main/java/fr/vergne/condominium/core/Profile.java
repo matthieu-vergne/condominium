@@ -49,13 +49,9 @@ public interface Profile {
 
 		@Override
 		public boolean equals(Object obj) {
-			if (obj == this) {
-				return true;
-			} else if (obj instanceof Profile that) {
-				return Objects.equals(this.names(), that.names()) && Objects.equals(this.emails(), that.emails());
-			} else {
-				return false;
-			}
+			return obj instanceof Profile that //
+					&& Objects.equals(this.names(), that.names()) //
+					&& Objects.equals(this.emails(), that.emails());
 		}
 
 		@Override

@@ -3,6 +3,7 @@ package fr.vergne.condominium.core.repository;
 import static java.util.Objects.requireNonNull;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -109,13 +110,8 @@ public interface RepositoryDiff<R, K> {
 
 		@Override
 		public boolean equals(Object obj) {
-			if (obj == this) {
-				return true;
-			} else if (obj instanceof @SuppressWarnings("rawtypes") ResourceDiff that) {
-				return this.values().equals(that.values);
-			} else {
-				return false;
-			}
+			return obj instanceof @SuppressWarnings("rawtypes") ResourceDiff that //
+					&& Objects.equals(this.values(), that.values);
 		}
 
 		@Override

@@ -17,14 +17,9 @@ public class MimeType {
 
 	@Override
 	public final boolean equals(Object obj) {
-		if (obj == this) {
-			return true;
-		} else if (obj instanceof MimeType that) {
-			return Objects.equals(this.type, that.type) //
-					&& Objects.equals(this.subtype, that.subtype);
-		} else {
-			return false;
-		}
+		return obj instanceof MimeType that //
+				&& Objects.equals(this.type, that.type)//
+				&& Objects.equals(this.subtype, that.subtype);
 	}
 
 	@Override
