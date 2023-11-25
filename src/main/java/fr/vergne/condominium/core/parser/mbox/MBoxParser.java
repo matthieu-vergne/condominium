@@ -377,6 +377,7 @@ public class MBoxParser {
 			} else if (contentType.mimeType().equals(MimeType.Application.ICS)) {
 				return new IcsBody(MimeType.Application.ICS, stringSupplier.get(), contentType.name().get());
 			} else if (contentType.mimeType().equals(MimeType.Application.PDF)) {
+				// https://opensource.adobe.com/dc-acrobat-sdk-docs/pdflsdk/#pdf-reference
 				return new NamedBinaryBody(MimeType.Application.PDF, bytesSupplier.get(), contentType.name().get());
 			} else if (contentType.mimeType().equals(MimeType.Application.WORD)) {
 				return new NamedBinaryBody(MimeType.Application.WORD, bytesSupplier.get(), contentType.name().get());
