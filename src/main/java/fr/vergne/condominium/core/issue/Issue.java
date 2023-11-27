@@ -5,7 +5,7 @@ import java.util.Collection;
 import java.util.LinkedList;
 import java.util.stream.Stream;
 
-import fr.vergne.condominium.core.mail.Mail;
+import fr.vergne.condominium.core.source.Source;
 
 public interface Issue {
 
@@ -13,7 +13,9 @@ public interface Issue {
 
 	History history();
 
-	void notifyByMail(Mail mail, Status status);
+	ZonedDateTime datetime();
+
+	void notify(Status reported, Source source);
 
 	default Status currentStatus() {
 		return history().stream()//
@@ -23,7 +25,7 @@ public interface Issue {
 				.orElseThrow();
 	}
 
-	public static Issue create(String issueTitle) {
+	public static Issue create(String issueTitle, ZonedDateTime dateTime) {
 		History history = History.createEmpty();
 		Issue issue = new Issue() {
 
@@ -38,8 +40,13 @@ public interface Issue {
 			}
 
 			@Override
-			public void notifyByMail(Mail mail, Status status) {
-				history.add(new History.Item(mail.receivedDate(), status, mail));
+			public ZonedDateTime datetime() {
+				return dateTime;
+			}
+
+			@Override
+			public void notify(Status status, Source source) {
+				history.add(new History.Item(source.date(), status, source));
 			}
 		};
 		return issue;

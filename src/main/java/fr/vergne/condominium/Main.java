@@ -40,6 +40,7 @@ import fr.vergne.condominium.core.repository.Repository;
 import fr.vergne.condominium.core.repository.RepositoryDiff;
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Action;
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Values;
+import fr.vergne.condominium.core.source.Source;
 
 public class Main {
 	private static final Consumer<Object> LOGGER = System.out::println;
@@ -59,6 +60,7 @@ public class Main {
 		Path plotCsPath = outFolderPath.resolve("graph2.png");
 		Path plotSyndicPath = outFolderPath.resolve("graph3.png");
 		Path mailRepositoryPath = outFolderPath.resolve("mails");
+		Path issueRepositoryPath = outFolderPath.resolve("issues");
 
 		Repository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
 
@@ -67,6 +69,8 @@ public class Main {
 		LOGGER.accept("--- /UPDATE ---");
 
 		List<Mail> mails = mailRepository.streamResources().toList();
+		Source.Provider sourceProvider = createSourceProvider();
+		Repository<Issue, IssueId> issueRepository = createIssueRepository(issueRepositoryPath);
 		LOGGER.accept("=================");
 		{
 			LOGGER.accept("Associate mails to issues");
@@ -86,8 +90,11 @@ public class Main {
 			LOGGER.accept("Subject: " + mail.subject());
 			LOGGER.accept("Body:");
 			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
-			Issue issue = Issue.create("Panne de chauffage");
-			issue.notifyByMail(mail, Issue.Status.REPORTED);
+			Issue issue = Issue.create("Panne de chauffage", mail.receivedDate());
+			IssueId issueId = issueRepository.add(issue);
+			Source source = sourceProvider.sourceMail(mail);
+			issue.notify(Issue.Status.REPORTED, source);
+			// TODO Update repository
 		}
 
 		LOGGER.accept("=================");
@@ -128,6 +135,70 @@ public class Main {
 		}
 	}
 
+	private static Repository<Issue, IssueId> createIssueRepository(Path repositoryPath) {
+		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
+
+		Function<Issue, byte[]> resourceSerializer = issue -> {
+			// TODO Store YAML
+			throw new RuntimeException("Not yet implemented");
+		};
+		Function<Supplier<byte[]>, Issue> resourceDeserializer = bytes -> {
+			// TODO Read YAML
+			throw new RuntimeException("Not yet implemented");
+		};
+
+		String extension = ".issue";
+		try {
+			createDirectories(repositoryPath);
+		} catch (IOException cause) {
+			throw new RuntimeException("Cannot create issue repository directory: " + repositoryPath, cause);
+		}
+		Function<IssueId, Path> pathResolver = (id) -> {
+			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.issue().datetime()).replace('-',
+					File.separatorChar);
+			Path dayDirectory = repositoryPath.resolve(datePart);
+			try {
+				createDirectories(dayDirectory);
+			} catch (IOException cause) {
+				throw new RuntimeException("Cannot create issue directory: " + dayDirectory, cause);
+			}
+
+			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.issue().datetime()).replace(':', '-');
+			String addressPart = id.issue().title().replaceAll("[^a-zA-Z0-9]+", "-");
+			return dayDirectory.resolve(timePart + "_" + addressPart + extension);
+		};
+		Supplier<Stream<Path>> pathFinder = () -> {
+			try {
+				return find(repositoryPath, Integer.MAX_VALUE, (path, attr) -> {
+					return path.toString().endsWith(extension) && isRegularFile(path);
+				});
+			} catch (IOException cause) {
+				throw new RuntimeException("Cannot browse " + repositoryPath, cause);
+			}
+		};
+		return new FileRepository<Issue, IssueId>(//
+				identifier, //
+				resourceSerializer, resourceDeserializer, //
+				pathResolver, pathFinder//
+		);
+	}
+
+	private static Source.Provider createSourceProvider() {
+		return new Source.Provider() {
+
+			@Override
+			public Source sourceMail(Mail mail) {
+				return new Source() {
+
+					@Override
+					public ZonedDateTime date() {
+						return mail.receivedDate();
+					}
+				};
+			}
+		};
+	}
+
 	private static void updateMailsExceptRemovals(Repository<Mail, MailId> mboxRepository,
 			Repository<Mail, MailId> mailRepository) {
 		RepositoryDiff.of(mailRepository, mboxRepository)//
@@ -165,13 +236,16 @@ public class Main {
 		return mboxRepository;
 	}
 
+	record IssueId(Issue issue) {
+	}
+
 	record MailId(ZonedDateTime datetime, Address sender) {
 		public static MailId fromMail(Mail mail) {
 			return new MailId(mail.receivedDate(), mail.sender());
 		}
 	}
 
-	private static FileRepository<Mail, MailId> createMailRepository(Path mailRepositoryPath) {
+	private static FileRepository<Mail, MailId> createMailRepository(Path repositoryPath) {
 		Function<Mail, MailId> identifier = MailId::fromMail;
 
 		MBoxParser repositoryParser = new MBoxParser(LOGGER);
@@ -187,15 +261,15 @@ public class Main {
 			});
 		};
 
-		String mailExtension = ".mail";
+		String extension = ".mail";
 		try {
-			createDirectories(mailRepositoryPath);
+			createDirectories(repositoryPath);
 		} catch (IOException cause) {
-			throw new RuntimeException("Cannot create mail repository directory: " + mailRepositoryPath, cause);
+			throw new RuntimeException("Cannot create mail repository directory: " + repositoryPath, cause);
 		}
 		Function<MailId, Path> pathResolver = (id) -> {
 			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.datetime).replace('-', File.separatorChar);
-			Path dayDirectory = mailRepositoryPath.resolve(datePart);
+			Path dayDirectory = repositoryPath.resolve(datePart);
 			try {
 				createDirectories(dayDirectory);
 			} catch (IOException cause) {
@@ -204,15 +278,15 @@ public class Main {
 
 			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.datetime).replace(':', '-');
 			String addressPart = id.sender.email().replaceAll("[^a-zA-Z0-9]+", "-");
-			return dayDirectory.resolve(timePart + "_" + addressPart + mailExtension);
+			return dayDirectory.resolve(timePart + "_" + addressPart + extension);
 		};
 		Supplier<Stream<Path>> pathFinder = () -> {
 			try {
-				return find(mailRepositoryPath, Integer.MAX_VALUE, (path, attr) -> {
-					return path.toString().endsWith(mailExtension) && isRegularFile(path);
+				return find(repositoryPath, Integer.MAX_VALUE, (path, attr) -> {
+					return path.toString().endsWith(extension) && isRegularFile(path);
 				});
 			} catch (IOException cause) {
-				throw new RuntimeException("Cannot browse " + mailRepositoryPath, cause);
+				throw new RuntimeException("Cannot browse " + repositoryPath, cause);
 			}
 		};
 
