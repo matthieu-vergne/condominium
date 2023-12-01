@@ -22,7 +22,7 @@ public class FileRepository<R, K> implements Repository<R, K> {
 	private Function<K, Path> pathResolver;
 	private Supplier<Stream<Path>> pathFinder;
 
-	public FileRepository(Function<R, K> identifier, Function<R, byte[]> resourceSerializer,
+	private FileRepository(Function<R, K> identifier, Function<R, byte[]> resourceSerializer,
 			Function<Supplier<byte[]>, R> resourceDeserializer, Function<K, Path> pathResolver,
 			Supplier<Stream<Path>> pathFinder) {
 		this.identifier = identifier;
@@ -30,6 +30,14 @@ public class FileRepository<R, K> implements Repository<R, K> {
 		this.pathResolver = pathResolver;
 		this.resourceSerializer = resourceSerializer;
 		this.resourceDeserializer = resourceDeserializer;
+	}
+
+	// TODO Create method for inputstream instead of bytes, to avoid preloading all
+	// the data in memory
+	public static <R, K> FileRepository<R, K> overBytes(Function<R, K> identifier,
+			Function<R, byte[]> resourceSerializer, Function<Supplier<byte[]>, R> resourceDeserializer,
+			Function<K, Path> pathResolver, Supplier<Stream<Path>> pathFinder) {
+		return new FileRepository<>(identifier, resourceSerializer, resourceDeserializer, pathResolver, pathFinder);
 	}
 
 	@Override

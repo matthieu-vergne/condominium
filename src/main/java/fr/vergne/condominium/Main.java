@@ -4,6 +4,7 @@ import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.find;
 import static java.nio.file.Files.isRegularFile;
 import static java.util.Comparator.comparing;
+import static java.util.function.Predicate.isEqual;
 import static java.util.stream.Collectors.joining;
 
 import java.io.File;
@@ -13,17 +14,27 @@ import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
+import org.yaml.snakeyaml.Yaml;
+
+import fr.vergne.condominium.Main.IssueData.ItemData;
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.issue.Issue;
+import fr.vergne.condominium.core.issue.Issue.History;
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Address;
@@ -41,6 +52,7 @@ import fr.vergne.condominium.core.repository.RepositoryDiff;
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Action;
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Values;
 import fr.vergne.condominium.core.source.Source;
+import fr.vergne.condominium.core.source.Source.Refiner;
 
 public class Main {
 	private static final Consumer<Object> LOGGER = System.out::println;
@@ -68,10 +80,136 @@ public class Main {
 		updateMailsExceptRemovals(loadMBox(mboxPath, confMailCleaningPath), mailRepository);
 		LOGGER.accept("--- /UPDATE ---");
 
-		List<Mail> mails = mailRepository.streamResources().toList();
 		Source.Provider sourceProvider = createSourceProvider();
-		Repository<Issue, IssueId> issueRepository = createIssueRepository(issueRepositoryPath);
+
+		Function<Source<?>, String> sourceIdentifier;
+		Function<String, Source<?>> sourceResolver;
+		{
+			Source<Repository<Mail, MailId>> repoSource = Source.create(mailRepository);
+			Source.Refiner<Repository<Mail, MailId>, MailId, Mail> mailRefiner = Source.Refiner
+					.create(Repository<Mail, MailId>::mustGet);
+			Source.Refiner<Mail, String, Mail.Body> bodyRefiner = Source.Refiner.create((mail, id) -> null);
+
+			// TODO Extract to dedicated object
+			Map<String, Source<?>> roots = new HashMap<>();
+			WeakHashMap<Source<?>, String> identifierCache = new WeakHashMap<>();
+			Function<Source<?>, String> rejectMissingIdentifier = source -> {
+				throw new NoSuchElementException("No identifier for source: " + source);
+			};
+			String refinerSep = "µ";
+			String idSep = "=";
+			roots.put("mails", repoSource);
+			identifierCache.put(repoSource, "root" + idSep + "mails");
+			Map<String, Source.Refiner<?, ?, ?>> refiners = new HashMap<>();
+			refiners.put("id", mailRefiner);
+			refiners.put("body", bodyRefiner);
+			Map<String, Function<String, ?>> deserializers = new HashMap<>();
+			{
+				Refiner<Repository<Mail, MailId>, MailId, Mail> parentRefiner = mailRefiner;
+				DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
+				String mailSep = "¤";
+				Function<MailId, String> idSerializer = id -> {
+					String date = dateParser.format(id.datetime());
+					Address sender = id.sender();
+					Optional<String> name = sender.name();
+					String email = sender.email();
+					return name.orElse("-") + mailSep + email + mailSep + date;
+				};
+				Function<String, MailId> idDeserializer = string -> {
+					String[] split = string.split(mailSep);
+					Optional<String> name = Optional.of(split[0]).filter(isEqual("-"));
+					String email = split[1];
+					ZonedDateTime date = ZonedDateTime.from(dateParser.parse(split[2]));
+					Address sender = Address.createWithCanonEmail(name, email);
+					return new MailId(date, sender);
+				};
+				refiners.put("id", mailRefiner);
+				deserializers.put("id", idDeserializer);
+				mailRefiner = new Source.Refiner<Repository<Mail, MailId>, Main.MailId, Mail>() {
+
+					@Override
+					public Source<Mail> resolve(Source<Repository<Mail, MailId>> parentSource, MailId id) {
+						Source<Mail> resolved = parentRefiner.resolve(parentSource, id);
+						String parentString = identifierCache.computeIfAbsent(parentSource, rejectMissingIdentifier);
+						String childString = "id" + idSep + idSerializer.apply(id);
+						identifierCache.put(resolved, parentString + refinerSep + childString);
+						return resolved;
+					}
+				};
+			}
+			// TODO Produce Map for YAML
+			sourceIdentifier = source -> {
+				return identifierCache.computeIfAbsent(source, rejectMissingIdentifier);
+			};
+			// TODO Parse from Map stored into YAML
+			sourceResolver = id -> {
+				String[] split = id.split(refinerSep);
+
+				String rootChunk = split[0];
+				String rootKey = rootChunk.split(idSep)[1];
+				Source<?> source = roots.get(rootKey);
+
+				return Stream.of(split).skip(1)//
+						.map(chunk -> {
+							String[] split2 = chunk.split(idSep);
+							String refinerKey = split2[0];
+							Refiner<?, ?, ?> refiner = refiners.get(refinerKey);
+							String refinerId = split2[1];
+							Function<String, ?> deserializer = deserializers.get(refinerKey);
+							Object idObject = deserializer.apply(refinerId);
+							UnaryOperator<Source<?>> refinement = parentSource -> resolveHelper(refiner, idObject,
+									parentSource);
+							return refinement;
+						}).<Source<?>>reduce(source, (s, op) -> op.apply(s), (s1, s2) -> {
+							throw new RuntimeException("Not implemented");
+						});
+			};
+
+			{
+				Repository<Mail, MailId> repo = repoSource.resolve();
+				Source<?> source = repoSource;
+				String id = sourceIdentifier.apply(source);
+				System.out.println("root=mails = " + id.equals("root=mails"));
+				Source<?> retrieved = sourceResolver.apply(id);
+				System.out.println("source = " + source.equals(retrieved));
+				Object resolved = retrieved.resolve();
+				System.out.println("object = " + repo.equals(resolved));
+			}
+
+			MailId mailId = mailRepository.streamKeys().findFirst().orElseThrow();
+			Source<Mail> mailSource = repoSource.refine(mailRefiner, mailId);
+			{
+				Mail mail = mailSource.resolve();
+				Source<?> source = mailSource;
+				String id = sourceIdentifier.apply(source);
+				System.out.println("root=mailsµid=xxx = " + id.equals(
+						"root=mailsµid=L'équipe Google Community¤googlecommunityteam-noreply@google.com¤2023-01-20T08:57:35+01:00[Europe/Paris]"));
+				Source<?> retrieved = sourceResolver.apply(id);
+				System.out.println("source = " + source.equals(retrieved));
+				Object resolved = retrieved.resolve();
+				System.out.println("object = " + mail.equals(resolved));
+			}
+
+			Source<Mail.Body> bodySource = mailSource.refine(bodyRefiner, "bodyId");
+			{
+				Body body = bodySource.resolve();
+				Source<?> source = bodySource;
+				String id = sourceIdentifier.apply(source);
+				System.out.println("root=mailsµid=xxxµbody=yyy = " + id.equals(
+						"root=mailsµid=L'équipe Google Community¤googlecommunityteam-noreply@google.com¤2023-01-20T08:57:35+01:00[Europe/Paris]µbody=yyy"));
+				Source<?> retrieved = sourceResolver.apply(id);
+				System.out.println("source = " + source.equals(retrieved));
+				Object resolved = retrieved.resolve();
+				System.out.println("object = " + body.equals(resolved));
+			}
+			if ("".length() == 0)
+				throw new RuntimeException("Check");
+		}
+
+		Repository<Issue, IssueId> issueRepository = createIssueRepository(issueRepositoryPath, sourceIdentifier,
+				sourceResolver);
 		LOGGER.accept("=================");
+		List<Mail> mails = mailRepository.streamResources().toList();
 		{
 			LOGGER.accept("Associate mails to issues");
 			// TODO Retrieve mail from ID
@@ -91,9 +229,9 @@ public class Main {
 			LOGGER.accept("Body:");
 			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
 			Issue issue = Issue.create("Panne de chauffage", mail.receivedDate());
-			IssueId issueId = issueRepository.add(issue);
-			Source source = sourceProvider.sourceMail(mail);
+			Source.Dated<Mail> source = sourceProvider.sourceMail(mail);
 			issue.notify(Issue.Status.REPORTED, source);
+			IssueId issueId = issueRepository.add(issue);
 			// TODO Update repository
 		}
 
@@ -135,16 +273,94 @@ public class Main {
 		}
 	}
 
-	private static Repository<Issue, IssueId> createIssueRepository(Path repositoryPath) {
+	@SuppressWarnings("unchecked")
+	private static <T1, I, T2> Source<T2> resolveHelper(Refiner<T1, I, T2> refiner, Object idObject,
+			Source<?> parentSource) {
+		return refiner.resolve((Source<T1>) parentSource, (I) idObject);
+	}
+
+	static class IssueData {
+		private String title;
+		private String dateTime;
+		private List<ItemData> history;
+
+		static class ItemData {
+			private String dateTime;
+			private String status;
+			private String source;
+
+			public String getDateTime() {
+				return dateTime;
+			}
+
+			public void setDateTime(String dateTime) {
+				this.dateTime = dateTime;
+			}
+
+			public String getStatus() {
+				return status;
+			}
+
+			public void setStatus(String status) {
+				this.status = status;
+			}
+		}
+
+		public String getTitle() {
+			return title;
+		}
+
+		public void setTitle(String title) {
+			this.title = title;
+		}
+
+		public String getDateTime() {
+			return dateTime;
+		}
+
+		public void setDateTime(String dateTime) {
+			this.dateTime = dateTime;
+		}
+
+		public List<ItemData> getHistory() {
+			return history;
+		}
+
+		public void setHistory(List<ItemData> history) {
+			this.history = history;
+		}
+	}
+
+	private static <T> Repository<Issue, IssueId> createIssueRepository(Path repositoryPath,
+			Function<Source<?>, String> sourceSerializer, Function<String, Source<?>> sourceDeserializer) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
 
+		Yaml yamlParser = new Yaml();
+		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
+
 		Function<Issue, byte[]> resourceSerializer = issue -> {
-			// TODO Store YAML
-			throw new RuntimeException("Not yet implemented");
+			IssueData data = new IssueData();
+			data.title = issue.title();
+			data.dateTime = dateParser.format(issue.datetime());
+			data.history = issue.history().stream().map(item -> {
+				ItemData itemData = new ItemData();
+				itemData.dateTime = dateParser.format(item.datetime());
+				itemData.status = item.status().name();
+				itemData.source = sourceSerializer.apply(item.source());
+				return itemData;
+			}).toList();
+			return yamlParser.dump(data).getBytes();
 		};
 		Function<Supplier<byte[]>, Issue> resourceDeserializer = bytes -> {
-			// TODO Read YAML
-			throw new RuntimeException("Not yet implemented");
+			String s = new String(bytes.get());
+			IssueData data = yamlParser.load(s);
+			Issue issue = Issue.create(data.title, ZonedDateTime.from(dateParser.parse(data.dateTime)));
+			History history = issue.history();
+			for (ItemData itemData : data.history) {
+				history.add(new History.Item(ZonedDateTime.from(dateParser.parse(itemData.dateTime)),
+						Issue.Status.valueOf(itemData.status), sourceDeserializer.apply(itemData.source)));
+			}
+			return issue;
 		};
 
 		String extension = ".issue";
@@ -176,7 +392,7 @@ public class Main {
 				throw new RuntimeException("Cannot browse " + repositoryPath, cause);
 			}
 		};
-		return new FileRepository<Issue, IssueId>(//
+		return FileRepository.overBytes(//
 				identifier, //
 				resourceSerializer, resourceDeserializer, //
 				pathResolver, pathFinder//
@@ -187,12 +403,17 @@ public class Main {
 		return new Source.Provider() {
 
 			@Override
-			public Source sourceMail(Mail mail) {
-				return new Source() {
+			public Source.Dated<Mail> sourceMail(Mail mail) {
+				return new Source.Dated<Mail>() {
 
 					@Override
 					public ZonedDateTime date() {
 						return mail.receivedDate();
+					}
+
+					@Override
+					public Mail resolve() {
+						return mail;
 					}
 				};
 			}
@@ -290,7 +511,7 @@ public class Main {
 			}
 		};
 
-		return new FileRepository<Mail, MailId>(//
+		return FileRepository.overBytes(//
 				identifier, //
 				resourceSerializer, resourceDeserializer, //
 				pathResolver, pathFinder);
