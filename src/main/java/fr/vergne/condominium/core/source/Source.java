@@ -4,8 +4,6 @@ import java.time.ZonedDateTime;
 import java.util.Objects;
 import java.util.function.BiFunction;
 
-import fr.vergne.condominium.core.mail.Mail;
-
 public interface Source<T> {
 
 	T resolve();
@@ -67,13 +65,14 @@ public interface Source<T> {
 						public int hashCode() {
 							return resolve().hashCode();
 						}
+
+						@Override
+						public String toString() {
+							return "Source[" + resolve().toString() + "]";
+						}
 					};
 				}
 			};
 		}
-	}
-
-	interface Provider {
-		Source.Dated<Mail> sourceMail(Mail mail);
 	}
 }

@@ -3,7 +3,6 @@ package fr.vergne.condominium;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.find;
 import static java.nio.file.Files.isRegularFile;
-import static java.util.Comparator.comparing;
 import static java.util.function.Predicate.isEqual;
 import static java.util.stream.Collectors.joining;
 
@@ -14,6 +13,7 @@ import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,7 +28,10 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
+import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.Constructor;
+import org.yaml.snakeyaml.inspector.TagInspector;
 
 import fr.vergne.condominium.Main.IssueData.ItemData;
 import fr.vergne.condominium.core.diagram.Diagram;
@@ -77,54 +80,48 @@ public class Main {
 		Repository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
 
 		LOGGER.accept("--- UPDATE ---");
-		updateMailsExceptRemovals(loadMBox(mboxPath, confMailCleaningPath), mailRepository);
+//		updateMailsExceptRemovals(loadMBox(mboxPath, confMailCleaningPath), mailRepository);
 		LOGGER.accept("--- /UPDATE ---");
 
-		Source.Provider sourceProvider = createSourceProvider();
+		Source<Repository<Mail, MailId>> repoSource = Source.create(mailRepository);
+		Source.Refiner<Repository<Mail, MailId>, MailId, Mail> mailRefiner = Source.Refiner
+				.create(Repository<Mail, MailId>::mustGet);
+		Source.Refiner<Mail, String, Mail.Body> bodyRefiner = Source.Refiner.create((mail, id) -> null);
 
-		Function<Source<?>, String> sourceIdentifier;
-		Function<String, Source<?>> sourceResolver;
+		// TODO Extract to dedicated object
+		// TODO Test
+		Map<String, Source<?>> roots = new HashMap<>();
+		WeakHashMap<Source<?>, String> identifierCache = new WeakHashMap<>();
+		Function<Source<?>, String> rejectMissingIdentifier = source -> {
+			throw new NoSuchElementException("No identifier for source: " + source);
+		};
+		String refinerSep = "µ";
+		String idSep = "=";
+		roots.put("mails", repoSource);
+		identifierCache.put(repoSource, "root" + idSep + "mails");
+		Map<String, Source.Refiner<?, ?, ?>> refiners = new HashMap<>();
+		Map<String, Function<String, ?>> deserializers = new HashMap<>();
 		{
-			Source<Repository<Mail, MailId>> repoSource = Source.create(mailRepository);
-			Source.Refiner<Repository<Mail, MailId>, MailId, Mail> mailRefiner = Source.Refiner
-					.create(Repository<Mail, MailId>::mustGet);
-			Source.Refiner<Mail, String, Mail.Body> bodyRefiner = Source.Refiner.create((mail, id) -> null);
-
-			// TODO Extract to dedicated object
-			Map<String, Source<?>> roots = new HashMap<>();
-			WeakHashMap<Source<?>, String> identifierCache = new WeakHashMap<>();
-			Function<Source<?>, String> rejectMissingIdentifier = source -> {
-				throw new NoSuchElementException("No identifier for source: " + source);
+			DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
+			String mailSep = "¤";
+			Function<MailId, String> idSerializer = id -> {
+				String date = dateParser.format(id.datetime());
+				Address sender = id.sender();
+				Optional<String> name = sender.name();
+				String email = sender.email();
+				return name.orElse("-") + mailSep + email + mailSep + date;
 			};
-			String refinerSep = "µ";
-			String idSep = "=";
-			roots.put("mails", repoSource);
-			identifierCache.put(repoSource, "root" + idSep + "mails");
-			Map<String, Source.Refiner<?, ?, ?>> refiners = new HashMap<>();
-			refiners.put("id", mailRefiner);
-			refiners.put("body", bodyRefiner);
-			Map<String, Function<String, ?>> deserializers = new HashMap<>();
+			Function<String, MailId> idDeserializer = string -> {
+				String[] split = string.split(mailSep);
+				Optional<String> name = Optional.of(split[0]).filter(isEqual("-"));
+				String email = split[1];
+				ZonedDateTime date = ZonedDateTime.from(dateParser.parse(split[2]));
+				Address sender = Address.createWithCanonEmail(name, email);
+				return new MailId(date, sender);
+			};
+			deserializers.put("id", idDeserializer);
 			{
 				Refiner<Repository<Mail, MailId>, MailId, Mail> parentRefiner = mailRefiner;
-				DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
-				String mailSep = "¤";
-				Function<MailId, String> idSerializer = id -> {
-					String date = dateParser.format(id.datetime());
-					Address sender = id.sender();
-					Optional<String> name = sender.name();
-					String email = sender.email();
-					return name.orElse("-") + mailSep + email + mailSep + date;
-				};
-				Function<String, MailId> idDeserializer = string -> {
-					String[] split = string.split(mailSep);
-					Optional<String> name = Optional.of(split[0]).filter(isEqual("-"));
-					String email = split[1];
-					ZonedDateTime date = ZonedDateTime.from(dateParser.parse(split[2]));
-					Address sender = Address.createWithCanonEmail(name, email);
-					return new MailId(date, sender);
-				};
-				refiners.put("id", mailRefiner);
-				deserializers.put("id", idDeserializer);
 				mailRefiner = new Source.Refiner<Repository<Mail, MailId>, Main.MailId, Mail>() {
 
 					@Override
@@ -132,78 +129,65 @@ public class Main {
 						Source<Mail> resolved = parentRefiner.resolve(parentSource, id);
 						String parentString = identifierCache.computeIfAbsent(parentSource, rejectMissingIdentifier);
 						String childString = "id" + idSep + idSerializer.apply(id);
-						identifierCache.put(resolved, parentString + refinerSep + childString);
+						String fullId = parentString + refinerSep + childString;
+						identifierCache.put(resolved, fullId);
 						return resolved;
 					}
 				};
 			}
-			// TODO Produce Map for YAML
-			sourceIdentifier = source -> {
-				return identifierCache.computeIfAbsent(source, rejectMissingIdentifier);
-			};
-			// TODO Parse from Map stored into YAML
-			sourceResolver = id -> {
-				String[] split = id.split(refinerSep);
+			refiners.put("id", mailRefiner);
+		}
+		// TODO Produce Map for YAML
+		Function<Source<?>, String> sourceIdentifier = source -> {
+			return identifierCache.computeIfAbsent(source, rejectMissingIdentifier);
+		};
+		// TODO Parse from Map stored into YAML
+		Function<String, Source<?>> sourceResolver = id -> {
+			String[] split = id.split(refinerSep);
 
-				String rootChunk = split[0];
-				String rootKey = rootChunk.split(idSep)[1];
-				Source<?> source = roots.get(rootKey);
+			String rootChunk = split[0];
+			String rootKey = rootChunk.split(idSep)[1];
+			Source<?> source = roots.get(rootKey);
 
-				return Stream.of(split).skip(1)//
-						.map(chunk -> {
-							String[] split2 = chunk.split(idSep);
-							String refinerKey = split2[0];
-							Refiner<?, ?, ?> refiner = refiners.get(refinerKey);
-							String refinerId = split2[1];
-							Function<String, ?> deserializer = deserializers.get(refinerKey);
-							Object idObject = deserializer.apply(refinerId);
-							UnaryOperator<Source<?>> refinement = parentSource -> resolveHelper(refiner, idObject,
-									parentSource);
-							return refinement;
-						}).<Source<?>>reduce(source, (s, op) -> op.apply(s), (s1, s2) -> {
-							throw new RuntimeException("Not implemented");
-						});
-			};
+			return Stream.of(split).skip(1)//
+					.map(chunk -> {
+						String[] split2 = chunk.split(idSep);
+						String refinerKey = split2[0];
+						Refiner<?, ?, ?> refiner = refiners.get(refinerKey);
+						String refinerId = split2[1];
+						Function<String, ?> deserializer = deserializers.get(refinerKey);
+						Object idObject = deserializer.apply(refinerId);
+						UnaryOperator<Source<?>> refinement = parentSource -> resolveHelper(refiner, idObject,
+								parentSource);
+						return refinement;
+					}).<Source<?>>reduce(source, (s, op) -> op.apply(s), (s1, s2) -> {
+						throw new RuntimeException("Not implemented");
+					});
+		};
 
-			{
-				Repository<Mail, MailId> repo = repoSource.resolve();
-				Source<?> source = repoSource;
-				String id = sourceIdentifier.apply(source);
-				System.out.println("root=mails = " + id.equals("root=mails"));
-				Source<?> retrieved = sourceResolver.apply(id);
-				System.out.println("source = " + source.equals(retrieved));
-				Object resolved = retrieved.resolve();
-				System.out.println("object = " + repo.equals(resolved));
-			}
+		{
+			Repository<Mail, MailId> repo = repoSource.resolve();
+			Source<?> source = repoSource;
+			String id = sourceIdentifier.apply(source);
+			System.out.println("root=mails = " + id.equals("root=mails"));
+			Source<?> retrieved = sourceResolver.apply(id);
+			System.out.println("source = " + source.equals(retrieved));
+			Object resolved = retrieved.resolve();
+			System.out.println("object = " + repo.equals(resolved));
+		}
 
-			MailId mailId = mailRepository.streamKeys().findFirst().orElseThrow();
-			Source<Mail> mailSource = repoSource.refine(mailRefiner, mailId);
-			{
-				Mail mail = mailSource.resolve();
-				Source<?> source = mailSource;
-				String id = sourceIdentifier.apply(source);
-				System.out.println("root=mailsµid=xxx = " + id.equals(
-						"root=mailsµid=L'équipe Google Community¤googlecommunityteam-noreply@google.com¤2023-01-20T08:57:35+01:00[Europe/Paris]"));
-				Source<?> retrieved = sourceResolver.apply(id);
-				System.out.println("source = " + source.equals(retrieved));
-				Object resolved = retrieved.resolve();
-				System.out.println("object = " + mail.equals(resolved));
-			}
-
-			Source<Mail.Body> bodySource = mailSource.refine(bodyRefiner, "bodyId");
-			{
-				Body body = bodySource.resolve();
-				Source<?> source = bodySource;
-				String id = sourceIdentifier.apply(source);
-				System.out.println("root=mailsµid=xxxµbody=yyy = " + id.equals(
-						"root=mailsµid=L'équipe Google Community¤googlecommunityteam-noreply@google.com¤2023-01-20T08:57:35+01:00[Europe/Paris]µbody=yyy"));
-				Source<?> retrieved = sourceResolver.apply(id);
-				System.out.println("source = " + source.equals(retrieved));
-				Object resolved = retrieved.resolve();
-				System.out.println("object = " + body.equals(resolved));
-			}
-			if ("".length() == 0)
-				throw new RuntimeException("Check");
+		MailId mailId = mailRepository.streamKeys().findFirst().orElseThrow();
+		Source<Mail> mailSource = repoSource.refine(mailRefiner, mailId);
+		{
+			Mail mail = mailSource.resolve();
+			Source<?> source = mailSource;
+			String id = sourceIdentifier.apply(source);
+			System.out.println("root=mailsµid=xxx = " + id.equals(
+					"root=mailsµid=L'équipe Google Community¤googlecommunityteam-noreply@google.com¤2023-01-20T08:57:35+01:00[Europe/Paris]"));
+			Source<?> retrieved = sourceResolver.apply(id);
+			System.out.println("source = " + source.equals(retrieved));
+			Object resolved = retrieved.resolve();
+			System.out.println("object = " + mail.equals(resolved));
 		}
 
 		Repository<Issue, IssueId> issueRepository = createIssueRepository(issueRepositoryPath, sourceIdentifier,
@@ -217,23 +201,34 @@ public class Main {
 			// TODO Notify with email section
 			// TODO Issue repository
 			LOGGER.accept("**********************");
-			Mail mail = mails.stream()//
-					.sorted(comparing(Mail::receivedDate))//
-					.skip(2)//
-					.peek(LOGGER)// TODO Remove
-					.findFirst().get();
+			Mail mail = mailSource.resolve();
 			LOGGER.accept("From: " + mail.sender());
 			LOGGER.accept("To: " + mail.receivers().toList());
 			LOGGER.accept("At: " + mail.receivedDate());
 			LOGGER.accept("Subject: " + mail.subject());
 			LOGGER.accept("Body:");
 			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
-			Issue issue = Issue.create("Panne de chauffage", mail.receivedDate());
-			Source.Dated<Mail> source = sourceProvider.sourceMail(mail);
-			issue.notify(Issue.Status.REPORTED, source);
-			IssueId issueId = issueRepository.add(issue);
-			// TODO Update repository
+			if (issueRepository.stream().count() == 0) {
+				Issue issue = Issue.create("Panne de chauffage", mail.receivedDate());
+				issue.notify(Issue.Status.REPORTED, mailSource, mail.receivedDate());
+				IssueId issueId = issueRepository.add(issue);
+				LOGGER.accept("Added: " + issueId);
+			} else {
+				IssueId issueId = issueRepository.streamKeys().findFirst().get();
+				LOGGER.accept("Retrieving: " + issueId);
+				Issue issue = issueRepository.mustGet(issueId);
+				LOGGER.accept("Issue: " + issue);
+				issue.history().stream().forEach(item -> {
+					LOGGER.accept("- " + item);
+					LOGGER.accept("> " + item.source().resolve());
+				});
+				// TODO Update repository
+			}
 		}
+
+		String x;
+		if ("".length() == 0)
+			throw new RuntimeException("Check");
 
 		LOGGER.accept("=================");
 
@@ -279,12 +274,12 @@ public class Main {
 		return refiner.resolve((Source<T1>) parentSource, (I) idObject);
 	}
 
-	static class IssueData {
+	public static class IssueData {
 		private String title;
 		private String dateTime;
 		private List<ItemData> history;
 
-		static class ItemData {
+		public static class ItemData {
 			private String dateTime;
 			private String status;
 			private String source;
@@ -303,6 +298,14 @@ public class Main {
 
 			public void setStatus(String status) {
 				this.status = status;
+			}
+
+			public String getSource() {
+				return source;
+			}
+
+			public void setSource(String source) {
+				this.source = source;
 			}
 		}
 
@@ -335,7 +338,10 @@ public class Main {
 			Function<Source<?>, String> sourceSerializer, Function<String, Source<?>> sourceDeserializer) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
 
-		Yaml yamlParser = new Yaml();
+		LoaderOptions loaderOptions = new LoaderOptions();
+		TagInspector taginspector = tag -> tag.getClassName().equals(IssueData.class.getName());
+		loaderOptions.setTagInspector(taginspector);
+		Yaml yamlParser = new Yaml(new Constructor(IssueData.class, loaderOptions));
 		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
 
 		Function<Issue, byte[]> resourceSerializer = issue -> {
@@ -387,7 +393,7 @@ public class Main {
 			try {
 				return find(repositoryPath, Integer.MAX_VALUE, (path, attr) -> {
 					return path.toString().endsWith(extension) && isRegularFile(path);
-				});
+				}).sorted(Comparator.<Path>naturalOrder());// TODO Give real-time control over sort
 			} catch (IOException cause) {
 				throw new RuntimeException("Cannot browse " + repositoryPath, cause);
 			}
@@ -397,27 +403,6 @@ public class Main {
 				resourceSerializer, resourceDeserializer, //
 				pathResolver, pathFinder//
 		);
-	}
-
-	private static Source.Provider createSourceProvider() {
-		return new Source.Provider() {
-
-			@Override
-			public Source.Dated<Mail> sourceMail(Mail mail) {
-				return new Source.Dated<Mail>() {
-
-					@Override
-					public ZonedDateTime date() {
-						return mail.receivedDate();
-					}
-
-					@Override
-					public Mail resolve() {
-						return mail;
-					}
-				};
-			}
-		};
 	}
 
 	private static void updateMailsExceptRemovals(Repository<Mail, MailId> mboxRepository,
@@ -505,7 +490,7 @@ public class Main {
 			try {
 				return find(repositoryPath, Integer.MAX_VALUE, (path, attr) -> {
 					return path.toString().endsWith(extension) && isRegularFile(path);
-				});
+				}).sorted(Comparator.<Path>naturalOrder());// TODO Give real-time control over sort
 			} catch (IOException cause) {
 				throw new RuntimeException("Cannot browse " + repositoryPath, cause);
 			}

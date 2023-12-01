@@ -15,7 +15,7 @@ public interface Issue {
 
 	ZonedDateTime datetime();
 
-	void notify(Status reported, Source.Dated<?> source);
+	void notify(Status reported, Source<?> source, ZonedDateTime dateTime);
 
 	default Status currentStatus() {
 		return history().stream()//
@@ -45,8 +45,7 @@ public interface Issue {
 			}
 
 			@Override
-			public void notify(Status status, Source.Dated<?> source) {
-				ZonedDateTime dateTime = source.date();
+			public void notify(Status status, Source<?> source, ZonedDateTime dateTime) {
 				history.add(new History.Item(dateTime, status, source));
 			}
 		};
