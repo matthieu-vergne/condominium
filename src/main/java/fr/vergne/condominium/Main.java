@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -60,6 +61,35 @@ import fr.vergne.condominium.core.source.Source.Refiner;
 public class Main {
 	private static final Consumer<Object> LOGGER = System.out::println;
 
+	public static class Y {
+		private String name;
+		private String value;
+
+		public Y() {
+		}
+
+		public Y(String name, String value) {
+			this.name = name;
+			this.value = value;
+		}
+
+		public String getName() {
+			return name;
+		}
+
+		public void setName(String name) {
+			this.name = name;
+		}
+
+		public String getValue() {
+			return value;
+		}
+
+		public void setValue(String value) {
+			this.value = value;
+		}
+	}
+
 	public static void main(String[] args) throws IOException {
 		Path importFolderPath = Paths.get(System.getProperty("importFolder"));
 		Path confFolderPath = Paths.get(System.getProperty("confFolder"));
@@ -86,19 +116,16 @@ public class Main {
 		Source<Repository<Mail, MailId>> repoSource = Source.create(mailRepository);
 		Source.Refiner<Repository<Mail, MailId>, MailId, Mail> mailRefiner = Source.Refiner
 				.create(Repository<Mail, MailId>::mustGet);
-		Source.Refiner<Mail, String, Mail.Body> bodyRefiner = Source.Refiner.create((mail, id) -> null);
 
 		// TODO Extract to dedicated object
 		// TODO Test
 		Map<String, Source<?>> roots = new HashMap<>();
-		WeakHashMap<Source<?>, String> identifierCache = new WeakHashMap<>();
-		Function<Source<?>, String> rejectMissingIdentifier = source -> {
+		WeakHashMap<Source<?>, List<Y>> identifierCache = new WeakHashMap<>();
+		Function<Source<?>, List<Y>> rejectMissingIdentifier = source -> {
 			throw new NoSuchElementException("No identifier for source: " + source);
 		};
-		String refinerSep = "µ";
-		String idSep = "=";
 		roots.put("mails", repoSource);
-		identifierCache.put(repoSource, "root" + idSep + "mails");
+		identifierCache.put(repoSource, List.of(new Y("root", "mails")));
 		Map<String, Source.Refiner<?, ?, ?>> refiners = new HashMap<>();
 		Map<String, Function<String, ?>> deserializers = new HashMap<>();
 		{
@@ -127,9 +154,11 @@ public class Main {
 					@Override
 					public Source<Mail> resolve(Source<Repository<Mail, MailId>> parentSource, MailId id) {
 						Source<Mail> resolved = parentRefiner.resolve(parentSource, id);
-						String parentString = identifierCache.computeIfAbsent(parentSource, rejectMissingIdentifier);
-						String childString = "id" + idSep + idSerializer.apply(id);
-						String fullId = parentString + refinerSep + childString;
+						List<Y> parentId = identifierCache.computeIfAbsent(parentSource, rejectMissingIdentifier);
+						Y childId = new Y("id", idSerializer.apply(id));
+						List<Y> fullId = new ArrayList<>(parentId.size() + 1);
+						fullId.addAll(parentId);
+						fullId.add(childId);
 						identifierCache.put(resolved, fullId);
 						return resolved;
 					}
@@ -138,23 +167,20 @@ public class Main {
 			refiners.put("id", mailRefiner);
 		}
 		// TODO Produce Map for YAML
-		Function<Source<?>, String> sourceIdentifier = source -> {
+		Function<Source<?>, List<Y>> sourceIdentifier = source -> {
 			return identifierCache.computeIfAbsent(source, rejectMissingIdentifier);
 		};
 		// TODO Parse from Map stored into YAML
-		Function<String, Source<?>> sourceResolver = id -> {
-			String[] split = id.split(refinerSep);
-
-			String rootChunk = split[0];
-			String rootKey = rootChunk.split(idSep)[1];
+		Function<List<Y>, Source<?>> sourceResolver = id -> {
+			Y rootChunk = id.get(0);
+			String rootKey = rootChunk.getValue();
 			Source<?> source = roots.get(rootKey);
 
-			return Stream.of(split).skip(1)//
+			return id.stream().skip(1)//
 					.map(chunk -> {
-						String[] split2 = chunk.split(idSep);
-						String refinerKey = split2[0];
+						String refinerKey = chunk.getName();
 						Refiner<?, ?, ?> refiner = refiners.get(refinerKey);
-						String refinerId = split2[1];
+						String refinerId = chunk.getValue();
 						Function<String, ?> deserializer = deserializers.get(refinerKey);
 						Object idObject = deserializer.apply(refinerId);
 						UnaryOperator<Source<?>> refinement = parentSource -> resolveHelper(refiner, idObject,
@@ -168,7 +194,7 @@ public class Main {
 		{
 			Repository<Mail, MailId> repo = repoSource.resolve();
 			Source<?> source = repoSource;
-			String id = sourceIdentifier.apply(source);
+			List<Y> id = sourceIdentifier.apply(source);
 			System.out.println("root=mails = " + id.equals("root=mails"));
 			Source<?> retrieved = sourceResolver.apply(id);
 			System.out.println("source = " + source.equals(retrieved));
@@ -181,7 +207,7 @@ public class Main {
 		{
 			Mail mail = mailSource.resolve();
 			Source<?> source = mailSource;
-			String id = sourceIdentifier.apply(source);
+			List<Y> id = sourceIdentifier.apply(source);
 			System.out.println("root=mailsµid=xxx = " + id.equals(
 					"root=mailsµid=L'équipe Google Community¤googlecommunityteam-noreply@google.com¤2023-01-20T08:57:35+01:00[Europe/Paris]"));
 			Source<?> retrieved = sourceResolver.apply(id);
@@ -282,7 +308,7 @@ public class Main {
 		public static class ItemData {
 			private String dateTime;
 			private String status;
-			private String source;
+			private Object source;
 
 			public String getDateTime() {
 				return dateTime;
@@ -300,11 +326,11 @@ public class Main {
 				this.status = status;
 			}
 
-			public String getSource() {
+			public Object getSource() {
 				return source;
 			}
 
-			public void setSource(String source) {
+			public void setSource(Object source) {
 				this.source = source;
 			}
 		}
@@ -334,12 +360,16 @@ public class Main {
 		}
 	}
 
-	private static <T> Repository<Issue, IssueId> createIssueRepository(Path repositoryPath,
-			Function<Source<?>, String> sourceSerializer, Function<String, Source<?>> sourceDeserializer) {
+	private static <T, O> Repository<Issue, IssueId> createIssueRepository(Path repositoryPath,
+			Function<Source<?>, O> sourceSerializer, Function<O, Source<?>> sourceDeserializer) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
 
 		LoaderOptions loaderOptions = new LoaderOptions();
-		TagInspector taginspector = tag -> tag.getClassName().equals(IssueData.class.getName());
+		TagInspector taginspector = tag -> {
+			return Stream.of(IssueData.class, Y.class)//
+					.map(Class::getName).filter(tag.getClassName()::equals)//
+					.findFirst().isPresent();
+		};
 		loaderOptions.setTagInspector(taginspector);
 		Yaml yamlParser = new Yaml(new Constructor(IssueData.class, loaderOptions));
 		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
@@ -357,6 +387,7 @@ public class Main {
 			}).toList();
 			return yamlParser.dump(data).getBytes();
 		};
+		@SuppressWarnings("unchecked")
 		Function<Supplier<byte[]>, Issue> resourceDeserializer = bytes -> {
 			String s = new String(bytes.get());
 			IssueData data = yamlParser.load(s);
@@ -364,7 +395,7 @@ public class Main {
 			History history = issue.history();
 			for (ItemData itemData : data.history) {
 				history.add(new History.Item(ZonedDateTime.from(dateParser.parse(itemData.dateTime)),
-						Issue.Status.valueOf(itemData.status), sourceDeserializer.apply(itemData.source)));
+						Issue.Status.valueOf(itemData.status), sourceDeserializer.apply((O) itemData.source)));
 			}
 			return issue;
 		};
