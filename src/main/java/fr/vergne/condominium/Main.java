@@ -3,7 +3,6 @@ package fr.vergne.condominium;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.find;
 import static java.nio.file.Files.isRegularFile;
-import static java.util.function.Predicate.isEqual;
 import static java.util.stream.Collectors.joining;
 
 import java.io.File;
@@ -29,10 +28,13 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
+import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.TypeDescription;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.Constructor;
 import org.yaml.snakeyaml.inspector.TagInspector;
+import org.yaml.snakeyaml.representer.Representer;
 
 import fr.vergne.condominium.Main.IssueData.ItemData;
 import fr.vergne.condominium.core.diagram.Diagram;
@@ -63,12 +65,12 @@ public class Main {
 
 	public static class Y {
 		private String name;
-		private String value;
+		private Object value;
 
 		public Y() {
 		}
 
-		public Y(String name, String value) {
+		public Y(String name, Object value) {
 			this.name = name;
 			this.value = value;
 		}
@@ -81,11 +83,11 @@ public class Main {
 			this.name = name;
 		}
 
-		public String getValue() {
+		public Object getValue() {
 			return value;
 		}
 
-		public void setValue(String value) {
+		public void setValue(Object value) {
 			this.value = value;
 		}
 	}
@@ -127,23 +129,25 @@ public class Main {
 		roots.put("mails", repoSource);
 		identifierCache.put(repoSource, List.of(new Y("root", "mails")));
 		Map<String, Source.Refiner<?, ?, ?>> refiners = new HashMap<>();
-		Map<String, Function<String, ?>> deserializers = new HashMap<>();
+		Map<String, Function<Map<String, String>, ?>> deserializers = new HashMap<>();
 		{
 			DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
-			String mailSep = "¤";
-			Function<MailId, String> idSerializer = id -> {
-				String date = dateParser.format(id.datetime());
+			Function<MailId, Map<String, String>> idSerializer = id -> {
+				HashMap<String, String> map = new HashMap<>();
+				String dateTime = dateParser.format(id.datetime());
+				map.put("dateTime", dateTime);
 				Address sender = id.sender();
 				Optional<String> name = sender.name();
+				name.ifPresent(value -> map.put("name", value));
 				String email = sender.email();
-				return name.orElse("-") + mailSep + email + mailSep + date;
+				map.put("email", email);
+				return map;
 			};
-			Function<String, MailId> idDeserializer = string -> {
-				String[] split = string.split(mailSep);
-				Optional<String> name = Optional.of(split[0]).filter(isEqual("-"));
-				String email = split[1];
-				ZonedDateTime date = ZonedDateTime.from(dateParser.parse(split[2]));
+			Function<Map<String, String>, MailId> idDeserializer = map -> {
+				Optional<String> name = Optional.ofNullable(map.get("name"));
+				String email = map.get("email");
 				Address sender = Address.createWithCanonEmail(name, email);
+				ZonedDateTime date = ZonedDateTime.from(dateParser.parse(map.get("dateTime")));
 				return new MailId(date, sender);
 			};
 			deserializers.put("id", idDeserializer);
@@ -166,23 +170,22 @@ public class Main {
 			}
 			refiners.put("id", mailRefiner);
 		}
-		// TODO Produce Map for YAML
 		Function<Source<?>, List<Y>> sourceIdentifier = source -> {
 			return identifierCache.computeIfAbsent(source, rejectMissingIdentifier);
 		};
-		// TODO Parse from Map stored into YAML
 		Function<List<Y>, Source<?>> sourceResolver = id -> {
 			Y rootChunk = id.get(0);
-			String rootKey = rootChunk.getValue();
+			Object rootKey = rootChunk.getValue();
 			Source<?> source = roots.get(rootKey);
 
 			return id.stream().skip(1)//
 					.map(chunk -> {
 						String refinerKey = chunk.getName();
 						Refiner<?, ?, ?> refiner = refiners.get(refinerKey);
-						String refinerId = chunk.getValue();
-						Function<String, ?> deserializer = deserializers.get(refinerKey);
-						Object idObject = deserializer.apply(refinerId);
+						Object refinerId = chunk.getValue();
+						Function<Map<String, String>, ?> deserializer = deserializers.get(refinerKey);
+						@SuppressWarnings("unchecked")
+						Object idObject = deserializer.apply((Map<String, String>) refinerId);
 						UnaryOperator<Source<?>> refinement = parentSource -> resolveHelper(refiner, idObject,
 								parentSource);
 						return refinement;
@@ -308,7 +311,7 @@ public class Main {
 		public static class ItemData {
 			private String dateTime;
 			private String status;
-			private Object source;
+			private List<Y> source;
 
 			public String getDateTime() {
 				return dateTime;
@@ -326,11 +329,11 @@ public class Main {
 				this.status = status;
 			}
 
-			public Object getSource() {
+			public List<Y> getSource() {
 				return source;
 			}
 
-			public void setSource(Object source) {
+			public void setSource(List<Y> source) {
 				this.source = source;
 			}
 		}
@@ -360,18 +363,27 @@ public class Main {
 		}
 	}
 
-	private static <T, O> Repository<Issue, IssueId> createIssueRepository(Path repositoryPath,
-			Function<Source<?>, O> sourceSerializer, Function<O, Source<?>> sourceDeserializer) {
+	private static <T> Repository<Issue, IssueId> createIssueRepository(Path repositoryPath,
+			Function<Source<?>, List<Y>> sourceSerializer, Function<List<Y>, Source<?>> sourceDeserializer) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
 
+		// TODO Parse root source as simple tag
+		// TODO Parse refined source as simple tag + flatten value
+		// TODO Parse history item status as simple tag
+		DumperOptions representerOptions = new DumperOptions();
+		Representer representer = new Representer(representerOptions);
 		LoaderOptions loaderOptions = new LoaderOptions();
 		TagInspector taginspector = tag -> {
-			return Stream.of(IssueData.class, Y.class)//
+			return Stream.of(Y.class)//
 					.map(Class::getName).filter(tag.getClassName()::equals)//
 					.findFirst().isPresent();
 		};
 		loaderOptions.setTagInspector(taginspector);
-		Yaml yamlParser = new Yaml(new Constructor(IssueData.class, loaderOptions));
+		Constructor constructor = new Constructor(IssueData.class, loaderOptions);
+		TypeDescription customTypeDescription = new TypeDescription(ItemData.class);
+		customTypeDescription.addPropertyParameters("source", Y.class);
+		constructor.addTypeDescription(customTypeDescription);
+		Yaml yamlParser = new Yaml(constructor, representer);
 		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
 
 		Function<Issue, byte[]> resourceSerializer = issue -> {
@@ -385,9 +397,8 @@ public class Main {
 				itemData.source = sourceSerializer.apply(item.source());
 				return itemData;
 			}).toList();
-			return yamlParser.dump(data).getBytes();
+			return yamlParser.dumpAsMap(data).getBytes();
 		};
-		@SuppressWarnings("unchecked")
 		Function<Supplier<byte[]>, Issue> resourceDeserializer = bytes -> {
 			String s = new String(bytes.get());
 			IssueData data = yamlParser.load(s);
@@ -395,7 +406,7 @@ public class Main {
 			History history = issue.history();
 			for (ItemData itemData : data.history) {
 				history.add(new History.Item(ZonedDateTime.from(dateParser.parse(itemData.dateTime)),
-						Issue.Status.valueOf(itemData.status), sourceDeserializer.apply((O) itemData.source)));
+						Issue.Status.valueOf(itemData.status), sourceDeserializer.apply((List<Y>) itemData.source)));
 			}
 			return issue;
 		};
