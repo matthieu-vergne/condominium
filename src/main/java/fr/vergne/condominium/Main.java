@@ -16,10 +16,10 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -29,21 +29,31 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.DumperOptions.FlowStyle;
+import org.yaml.snakeyaml.DumperOptions.LineBreak;
+import org.yaml.snakeyaml.DumperOptions.ScalarStyle;
 import org.yaml.snakeyaml.LoaderOptions;
-import org.yaml.snakeyaml.TypeDescription;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.AbstractConstruct;
 import org.yaml.snakeyaml.constructor.Constructor;
-import org.yaml.snakeyaml.inspector.TagInspector;
+import org.yaml.snakeyaml.introspector.Property;
+import org.yaml.snakeyaml.nodes.MappingNode;
+import org.yaml.snakeyaml.nodes.Node;
+import org.yaml.snakeyaml.nodes.NodeTuple;
+import org.yaml.snakeyaml.nodes.ScalarNode;
+import org.yaml.snakeyaml.nodes.SequenceNode;
+import org.yaml.snakeyaml.nodes.Tag;
+import org.yaml.snakeyaml.representer.Represent;
 import org.yaml.snakeyaml.representer.Representer;
 
 import fr.vergne.condominium.Main.IssueData.ItemData;
+import fr.vergne.condominium.Main.IssueData.ItemData.SourceData;
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.issue.Issue;
 import fr.vergne.condominium.core.issue.Issue.History;
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Mail;
-import fr.vergne.condominium.core.mail.Mail.Address;
 import fr.vergne.condominium.core.mail.Mail.Body;
 import fr.vergne.condominium.core.mail.MimeType;
 import fr.vergne.condominium.core.mail.SoftReferencedMail;
@@ -66,6 +76,12 @@ public class Main {
 	public static class Y {
 		private String name;
 		private Object value;
+
+		static class Root extends Y {
+			public Root(String id) {
+				super("root", id);
+			}
+		}
 
 		public Y() {
 		}
@@ -127,7 +143,7 @@ public class Main {
 			throw new NoSuchElementException("No identifier for source: " + source);
 		};
 		roots.put("mails", repoSource);
-		identifierCache.put(repoSource, List.of(new Y("root", "mails")));
+		identifierCache.put(repoSource, List.of(new Y.Root("mails")));
 		Map<String, Source.Refiner<?, ?, ?>> refiners = new HashMap<>();
 		Map<String, Function<Map<String, String>, ?>> deserializers = new HashMap<>();
 		{
@@ -136,24 +152,19 @@ public class Main {
 				HashMap<String, String> map = new HashMap<>();
 				String dateTime = dateParser.format(id.datetime());
 				map.put("dateTime", dateTime);
-				Address sender = id.sender();
-				Optional<String> name = sender.name();
-				name.ifPresent(value -> map.put("name", value));
-				String email = sender.email();
+				String email = id.sender();
 				map.put("email", email);
 				return map;
 			};
 			Function<Map<String, String>, MailId> idDeserializer = map -> {
-				Optional<String> name = Optional.ofNullable(map.get("name"));
-				String email = map.get("email");
-				Address sender = Address.createWithCanonEmail(name, email);
 				ZonedDateTime date = ZonedDateTime.from(dateParser.parse(map.get("dateTime")));
-				return new MailId(date, sender);
+				String email = map.get("email");
+				return new MailId(date, email);
 			};
 			deserializers.put("id", idDeserializer);
 			{
 				Refiner<Repository<Mail, MailId>, MailId, Mail> parentRefiner = mailRefiner;
-				mailRefiner = new Source.Refiner<Repository<Mail, MailId>, Main.MailId, Mail>() {
+				mailRefiner = new Source.Refiner<Repository<Mail, MailId>, MailId, Mail>() {
 
 					@Override
 					public Source<Mail> resolve(Source<Repository<Mail, MailId>> parentSource, MailId id) {
@@ -311,7 +322,15 @@ public class Main {
 		public static class ItemData {
 			private String dateTime;
 			private String status;
-			private List<Y> source;
+			private SourceData source;
+
+			public static class SourceData {
+				private final List<Y> list;
+
+				public SourceData(List<Y> list) {
+					this.list = list;
+				}
+			}
 
 			public String getDateTime() {
 				return dateTime;
@@ -329,11 +348,11 @@ public class Main {
 				this.status = status;
 			}
 
-			public List<Y> getSource() {
+			public SourceData getSource() {
 				return source;
 			}
 
-			public void setSource(List<Y> source) {
+			public void setSource(SourceData source) {
 				this.source = source;
 			}
 		}
@@ -367,23 +386,148 @@ public class Main {
 			Function<Source<?>, List<Y>> sourceSerializer, Function<List<Y>, Source<?>> sourceDeserializer) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
 
-		// TODO Parse root source as simple tag
-		// TODO Parse refined source as simple tag + flatten value
-		// TODO Parse history item status as simple tag
-		DumperOptions representerOptions = new DumperOptions();
-		Representer representer = new Representer(representerOptions);
-		LoaderOptions loaderOptions = new LoaderOptions();
-		TagInspector taginspector = tag -> {
-			return Stream.of(Y.class)//
-					.map(Class::getName).filter(tag.getClassName()::equals)//
-					.findFirst().isPresent();
+		// TODO Compose Issue YAML parser with Source YAML parser
+		DumperOptions dumpOptions = new DumperOptions();
+		dumpOptions.setLineBreak(LineBreak.UNIX);
+		dumpOptions.setSplitLines(false);
+		dumpOptions.setDefaultFlowStyle(FlowStyle.BLOCK);
+		Representer representer = new Representer(dumpOptions) {
+			{
+				representers.put(IssueData.class, new Represent() {
+					@Override
+					public Node representData(Object data) {
+						LOGGER.accept("<<< ISSUE");
+						IssueData issue = (IssueData) data;
+						List<NodeTuple> issueTuples = new LinkedList<>();
+
+						{
+							Property valueProperty = getPropertyUtils().getProperty(issue.getClass(), "title");
+							issueTuples.add(representJavaBeanProperty(issue, valueProperty, issue.title, null));
+						}
+
+						{
+							Property valueProperty = getPropertyUtils().getProperty(issue.getClass(), "dateTime");
+							issueTuples.add(representJavaBeanProperty(issue, valueProperty, issue.dateTime, null));
+						}
+
+						List<Node> itemNodes = issue.history.stream().map(item -> {
+							List<NodeTuple> itemTuples = new LinkedList<>();
+
+							Tag itemTag = new Tag("!" + item.status.toLowerCase());
+
+							{
+								Property valueProperty = getPropertyUtils().getProperty(item.getClass(), "dateTime");
+								itemTuples.add(representJavaBeanProperty(item, valueProperty, item.dateTime, null));
+							}
+
+							{
+								SourceData source = item.source;
+								List<Y> list = source.list;
+								Y root = list.get(0);
+								Node rootNode = representScalar(Tag.STR, (String) root.getValue());
+								List<Node> nodes = new LinkedList<>();
+								nodes.add(rootNode);
+								list.stream().skip(1).forEach(y -> {
+									Property valueProperty = getProperties(y.getClass()).stream()
+											.filter(p -> p.getName().equals("value")).findFirst().orElseThrow();
+									Node node = representJavaBeanProperty(y, valueProperty, y.getValue(), null)
+											.getValueNode();
+									node.setTag(new Tag("!" + y.getName()));
+									nodes.add(node);
+								});
+								itemTuples.add(new NodeTuple(//
+										new ScalarNode(Tag.STR, "source", null, null, ScalarStyle.PLAIN), //
+										new SequenceNode(Tag.SEQ, nodes, defaultFlowStyle)//
+								));
+							}
+
+							return (Node) new MappingNode(itemTag, itemTuples, defaultFlowStyle);
+						}).toList();
+						issueTuples.add(new NodeTuple(//
+								new ScalarNode(Tag.STR, "history", null, null, ScalarStyle.PLAIN), //
+								new SequenceNode(Tag.SEQ, itemNodes, defaultFlowStyle)//
+						));
+
+						return new MappingNode(Tag.MAP, issueTuples, defaultFlowStyle);
+					}
+				});
+			}
 		};
-		loaderOptions.setTagInspector(taginspector);
-		Constructor constructor = new Constructor(IssueData.class, loaderOptions);
-		TypeDescription customTypeDescription = new TypeDescription(ItemData.class);
-		customTypeDescription.addPropertyParameters("source", Y.class);
-		constructor.addTypeDescription(customTypeDescription);
-		Yaml yamlParser = new Yaml(constructor, representer);
+		LoaderOptions loaderOptions = new LoaderOptions();
+		loaderOptions.setTagInspector(tag -> true);
+		Constructor constructor = new Constructor(IssueData.class, loaderOptions) {
+			{
+				yamlConstructors.put(null, new AbstractConstruct() {
+
+					@Override
+					public Object construct(Node node) {
+						MappingNode issueNode = (MappingNode) node;
+						IssueData issueData = new IssueData();
+						issueNode.getValue().forEach(tuple -> {
+							String tupleKey = ((ScalarNode) tuple.getKeyNode()).getValue();
+							if (tupleKey.equals("title")) {
+								issueData.title = extractScalarValue(tuple);
+							} else if (tupleKey.equals("dateTime")) {
+								issueData.dateTime = extractScalarValue(tuple);
+							} else if (tupleKey.equals("history")) {
+								issueData.history = extractIssueHistory(tuple);
+							} else {
+								throw new IllegalStateException("Not supported: " + tupleKey);
+							}
+						});
+						return issueData;
+					}
+
+					private List<ItemData> extractIssueHistory(NodeTuple issueTuple) {
+						return ((SequenceNode) issueTuple.getValueNode()).getValue().stream()//
+								.map(itemNode -> (MappingNode) itemNode)//
+								.map(itemNode -> {
+									ItemData itemData = new ItemData();
+
+									itemData.status = extractItemStatus(itemNode);
+
+									itemNode.getValue().forEach(tuple -> {
+										String tupleKey = ((ScalarNode) tuple.getKeyNode()).getValue();
+										if (tupleKey.equals("dateTime")) {
+											itemData.dateTime = extractScalarValue(tuple);
+										} else if (tupleKey.equals("source")) {
+											itemData.source = extractItemSource(tuple);
+										} else {
+											throw new IllegalStateException("Not supported: " + tupleKey);
+										}
+									});
+									return itemData;
+								}).toList();
+					}
+
+					private SourceData extractItemSource(NodeTuple tuple) {
+						List<Node> nodes = ((SequenceNode) tuple.getValueNode()).getValue();
+						List<Y> list = new LinkedList<>();
+
+						Node rootNode = nodes.get(0);
+						list.add(new Y.Root((String) constructScalar((ScalarNode) rootNode)));
+
+						nodes.stream().skip(1).forEach(subnode -> {
+							String name = subnode.getTag().getValue().substring(1);
+							subnode.setTag(Tag.MAP);
+							Object value = getConstructor(subnode).construct(subnode);
+							list.add(new Y(name, value));
+						});
+
+						return new SourceData(list);
+					}
+
+					private String extractItemStatus(MappingNode itemNode) {
+						return itemNode.getTag().getValue().substring(1).toUpperCase();
+					}
+
+					private String extractScalarValue(NodeTuple tuple) {
+						return ((ScalarNode) tuple.getValueNode()).getValue();
+					}
+				});
+			}
+		};
+		Yaml yamlParser = new Yaml(constructor, representer, dumpOptions);
 		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
 
 		Function<Issue, byte[]> resourceSerializer = issue -> {
@@ -394,10 +538,10 @@ public class Main {
 				ItemData itemData = new ItemData();
 				itemData.dateTime = dateParser.format(item.datetime());
 				itemData.status = item.status().name();
-				itemData.source = sourceSerializer.apply(item.source());
+				itemData.source = new SourceData(sourceSerializer.apply(item.source()));
 				return itemData;
 			}).toList();
-			return yamlParser.dumpAsMap(data).getBytes();
+			return yamlParser.dump(data).getBytes();
 		};
 		Function<Supplier<byte[]>, Issue> resourceDeserializer = bytes -> {
 			String s = new String(bytes.get());
@@ -406,7 +550,7 @@ public class Main {
 			History history = issue.history();
 			for (ItemData itemData : data.history) {
 				history.add(new History.Item(ZonedDateTime.from(dateParser.parse(itemData.dateTime)),
-						Issue.Status.valueOf(itemData.status), sourceDeserializer.apply((List<Y>) itemData.source)));
+						Issue.Status.valueOf(itemData.status), sourceDeserializer.apply(itemData.source.list)));
 			}
 			return issue;
 		};
@@ -487,9 +631,9 @@ public class Main {
 	record IssueId(Issue issue) {
 	}
 
-	record MailId(ZonedDateTime datetime, Address sender) {
+	record MailId(ZonedDateTime datetime, String sender) {
 		public static MailId fromMail(Mail mail) {
-			return new MailId(mail.receivedDate(), mail.sender());
+			return new MailId(mail.receivedDate(), mail.sender().email());
 		}
 	}
 
@@ -525,7 +669,7 @@ public class Main {
 			}
 
 			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.datetime).replace(':', '-');
-			String addressPart = id.sender.email().replaceAll("[^a-zA-Z0-9]+", "-");
+			String addressPart = id.sender.replaceAll("[^a-zA-Z0-9]+", "-");
 			return dayDirectory.resolve(timePart + "_" + addressPart + extension);
 		};
 		Supplier<Stream<Path>> pathFinder = () -> {
