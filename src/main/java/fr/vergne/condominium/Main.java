@@ -386,6 +386,7 @@ public class Main {
 			Function<Source<?>, List<Y>> sourceSerializer, Function<List<Y>, Source<?>> sourceDeserializer) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
 
+		// TODO Remove intermediary objects (IssueData, ItemData, Y, etc.)
 		// TODO Compose Issue YAML parser with Source YAML parser
 		DumperOptions dumpOptions = new DumperOptions();
 		dumpOptions.setLineBreak(LineBreak.UNIX);
@@ -393,62 +394,61 @@ public class Main {
 		dumpOptions.setDefaultFlowStyle(FlowStyle.BLOCK);
 		Representer representer = new Representer(dumpOptions) {
 			{
-				representers.put(IssueData.class, new Represent() {
+				representers.put(null, new Represent() {
 					@Override
 					public Node representData(Object data) {
-						LOGGER.accept("<<< ISSUE");
 						IssueData issue = (IssueData) data;
+
 						List<NodeTuple> issueTuples = new LinkedList<>();
+						issueTuples.add(tupleFor(issue, "title", issue.title));
+						issueTuples.add(tupleFor(issue, "dateTime", issue.dateTime));
+						issueTuples.add(historyTuple(issue.history));
 
-						{
-							Property valueProperty = getPropertyUtils().getProperty(issue.getClass(), "title");
-							issueTuples.add(representJavaBeanProperty(issue, valueProperty, issue.title, null));
-						}
+						return new MappingNode(Tag.MAP, issueTuples, defaultFlowStyle);
+					}
 
-						{
-							Property valueProperty = getPropertyUtils().getProperty(issue.getClass(), "dateTime");
-							issueTuples.add(representJavaBeanProperty(issue, valueProperty, issue.dateTime, null));
-						}
-
-						List<Node> itemNodes = issue.history.stream().map(item -> {
-							List<NodeTuple> itemTuples = new LinkedList<>();
-
+					private NodeTuple historyTuple(List<ItemData> history) {
+						List<Node> itemNodes = history.stream().map(item -> {
 							Tag itemTag = new Tag("!" + item.status.toLowerCase());
 
-							{
-								Property valueProperty = getPropertyUtils().getProperty(item.getClass(), "dateTime");
-								itemTuples.add(representJavaBeanProperty(item, valueProperty, item.dateTime, null));
-							}
-
-							{
-								SourceData source = item.source;
-								List<Y> list = source.list;
-								Y root = list.get(0);
-								Node rootNode = representScalar(Tag.STR, (String) root.getValue());
-								List<Node> nodes = new LinkedList<>();
-								nodes.add(rootNode);
-								list.stream().skip(1).forEach(y -> {
-									Property valueProperty = getProperties(y.getClass()).stream()
-											.filter(p -> p.getName().equals("value")).findFirst().orElseThrow();
-									Node node = representJavaBeanProperty(y, valueProperty, y.getValue(), null)
-											.getValueNode();
-									node.setTag(new Tag("!" + y.getName()));
-									nodes.add(node);
-								});
-								itemTuples.add(new NodeTuple(//
-										new ScalarNode(Tag.STR, "source", null, null, ScalarStyle.PLAIN), //
-										new SequenceNode(Tag.SEQ, nodes, defaultFlowStyle)//
-								));
-							}
+							List<NodeTuple> itemTuples = new LinkedList<>();
+							itemTuples.add(tupleFor(item, "dateTime", item.dateTime));
+							itemTuples.add(sourceTuple(item.source));
 
 							return (Node) new MappingNode(itemTag, itemTuples, defaultFlowStyle);
 						}).toList();
-						issueTuples.add(new NodeTuple(//
+
+						return new NodeTuple(//
 								new ScalarNode(Tag.STR, "history", null, null, ScalarStyle.PLAIN), //
 								new SequenceNode(Tag.SEQ, itemNodes, defaultFlowStyle)//
-						));
+						);
+					}
 
-						return new MappingNode(Tag.MAP, issueTuples, defaultFlowStyle);
+					private NodeTuple sourceTuple(SourceData source) {
+						List<Node> nodes = new LinkedList<>();
+
+						List<Y> list = source.list;
+						Y root = list.get(0);
+						nodes.add(representScalar(Tag.STR, (String) root.getValue()));
+
+						list.stream().skip(1).forEach(y -> {
+							Node node = tupleFor(y, "value", y.value).getValueNode();
+							node.setTag(new Tag("!" + y.getName()));
+							nodes.add(node);
+						});
+
+						return new NodeTuple(//
+								new ScalarNode(Tag.STR, "source", null, null, ScalarStyle.PLAIN), //
+								new SequenceNode(Tag.SEQ, nodes, defaultFlowStyle)//
+						);
+					}
+
+					private NodeTuple tupleFor(Object object, String name, Object value) {
+						return representJavaBeanProperty(object, propertyOf(object, name), value, null);
+					}
+
+					private Property propertyOf(Object object, String name) {
+						return getPropertyUtils().getProperty(object.getClass(), name);
 					}
 				});
 			}
