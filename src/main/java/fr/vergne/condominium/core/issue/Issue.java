@@ -13,7 +13,7 @@ public interface Issue {
 
 	History history();
 
-	ZonedDateTime datetime();
+	ZonedDateTime dateTime();
 
 	void notify(Status reported, Source<?> source, ZonedDateTime dateTime);
 
@@ -25,9 +25,12 @@ public interface Issue {
 				.orElseThrow();
 	}
 
-	public static Issue create(String issueTitle, ZonedDateTime dateTime) {
-		History history = History.createEmpty();
-		Issue issue = new Issue() {
+	public static Issue createEmpty(String issueTitle, ZonedDateTime dateTime) {
+		return create(issueTitle, dateTime, History.createEmpty());
+	}
+
+	public static Issue create(String issueTitle, ZonedDateTime dateTime, History history) {
+		return new Issue() {
 
 			@Override
 			public String title() {
@@ -40,7 +43,7 @@ public interface Issue {
 			}
 
 			@Override
-			public ZonedDateTime datetime() {
+			public ZonedDateTime dateTime() {
 				return dateTime;
 			}
 
@@ -49,7 +52,6 @@ public interface Issue {
 				history.add(new History.Item(dateTime, status, source));
 			}
 		};
-		return issue;
 	}
 
 	public enum Status {
@@ -62,7 +64,7 @@ public interface Issue {
 
 		void add(Item item);
 
-		public static record Item(ZonedDateTime datetime, Status status, Source<?> source) {
+		public static record Item(ZonedDateTime dateTime, Status status, Source<?> source) {
 		}
 
 		static History createEmpty() {

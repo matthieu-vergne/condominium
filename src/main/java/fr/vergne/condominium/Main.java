@@ -11,21 +11,16 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 import org.yaml.snakeyaml.DumperOptions;
@@ -46,12 +41,11 @@ import org.yaml.snakeyaml.nodes.Tag;
 import org.yaml.snakeyaml.representer.Represent;
 import org.yaml.snakeyaml.representer.Representer;
 
-import fr.vergne.condominium.Main.IssueData.ItemData;
-import fr.vergne.condominium.Main.IssueData.ItemData.SourceData;
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.issue.Issue;
 import fr.vergne.condominium.core.issue.Issue.History;
+import fr.vergne.condominium.core.issue.Issue.Status;
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Body;
@@ -72,41 +66,6 @@ import fr.vergne.condominium.core.source.Source.Refiner;
 
 public class Main {
 	private static final Consumer<Object> LOGGER = System.out::println;
-
-	public static class Y {
-		private String name;
-		private Object value;
-
-		static class Root extends Y {
-			public Root(String id) {
-				super("root", id);
-			}
-		}
-
-		public Y() {
-		}
-
-		public Y(String name, Object value) {
-			this.name = name;
-			this.value = value;
-		}
-
-		public String getName() {
-			return name;
-		}
-
-		public void setName(String name) {
-			this.name = name;
-		}
-
-		public Object getValue() {
-			return value;
-		}
-
-		public void setValue(Object value) {
-			this.value = value;
-		}
-	}
 
 	public static void main(String[] args) throws IOException {
 		Path importFolderPath = Paths.get(System.getProperty("importFolder"));
@@ -131,107 +90,86 @@ public class Main {
 //		updateMailsExceptRemovals(loadMBox(mboxPath, confMailCleaningPath), mailRepository);
 		LOGGER.accept("--- /UPDATE ---");
 
-		Source<Repository<Mail, MailId>> repoSource = Source.create(mailRepository);
-		Source.Refiner<Repository<Mail, MailId>, MailId, Mail> mailRefiner = Source.Refiner
-				.create(Repository<Mail, MailId>::mustGet);
+		Source.Tracker sourceTracker = Source.Tracker.create(Source::create, Source.Refiner::create);
+		Source<Repository<Mail, MailId>> mailRepoSource = sourceTracker.createSource(mailRepository);
+		Source.Refiner<Repository<Mail, MailId>, MailId, Mail> mailRefiner = sourceTracker
+				.createRefiner(Repository<Mail, MailId>::mustGet);
 
-		// TODO Extract to dedicated object
-		// TODO Test
-		Map<String, Source<?>> roots = new HashMap<>();
-		WeakHashMap<Source<?>, List<Y>> identifierCache = new WeakHashMap<>();
-		Function<Source<?>, List<Y>> rejectMissingIdentifier = source -> {
-			throw new NoSuchElementException("No identifier for source: " + source);
-		};
-		roots.put("mails", repoSource);
-		identifierCache.put(repoSource, List.of(new Y.Root("mails")));
-		Map<String, Source.Refiner<?, ?, ?>> refiners = new HashMap<>();
-		Map<String, Function<Map<String, String>, ?>> deserializers = new HashMap<>();
-		{
-			DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
-			Function<MailId, Map<String, String>> idSerializer = id -> {
-				HashMap<String, String> map = new HashMap<>();
-				String dateTime = dateParser.format(id.datetime());
-				map.put("dateTime", dateTime);
-				String email = id.sender();
-				map.put("email", email);
-				return map;
-			};
-			Function<Map<String, String>, MailId> idDeserializer = map -> {
-				ZonedDateTime date = ZonedDateTime.from(dateParser.parse(map.get("dateTime")));
-				String email = map.get("email");
-				return new MailId(date, email);
-			};
-			deserializers.put("id", idDeserializer);
-			{
-				Refiner<Repository<Mail, MailId>, MailId, Mail> parentRefiner = mailRefiner;
-				mailRefiner = new Source.Refiner<Repository<Mail, MailId>, MailId, Mail>() {
+		Persister<Source<?>> sourcePersister = new Persister<Source<?>>() {
+			String mailRepoId = "mails";
 
-					@Override
-					public Source<Mail> resolve(Source<Repository<Mail, MailId>> parentSource, MailId id) {
-						Source<Mail> resolved = parentRefiner.resolve(parentSource, id);
-						List<Y> parentId = identifierCache.computeIfAbsent(parentSource, rejectMissingIdentifier);
-						Y childId = new Y("id", idSerializer.apply(id));
-						List<Y> fullId = new ArrayList<>(parentId.size() + 1);
-						fullId.addAll(parentId);
-						fullId.add(childId);
-						identifierCache.put(resolved, fullId);
-						return resolved;
-					}
-				};
+			@Override
+			public String serialize(Source<?> source) {
+				if (mailRepoSource.equals(source)) {
+					return mailRepoId;
+				} else {
+					throw new IllegalArgumentException("Not supported: " + source);
+				}
 			}
-			refiners.put("id", mailRefiner);
-		}
-		Function<Source<?>, List<Y>> sourceIdentifier = source -> {
-			return identifierCache.computeIfAbsent(source, rejectMissingIdentifier);
+
+			@Override
+			public Source<?> deserialize(String serial) {
+				if (mailRepoId.equals(serial)) {
+					return mailRepoSource;
+				} else {
+					throw new IllegalArgumentException("Not supported: " + serial);
+				}
+			}
 		};
-		Function<List<Y>, Source<?>> sourceResolver = id -> {
-			Y rootChunk = id.get(0);
-			Object rootKey = rootChunk.getValue();
-			Source<?> source = roots.get(rootKey);
+		Persister<Refiner<?, ?, ?>> refinerPersister = new Persister<Refiner<?, ?, ?>>() {
+			String mailId = "id";
 
-			return id.stream().skip(1)//
-					.map(chunk -> {
-						String refinerKey = chunk.getName();
-						Refiner<?, ?, ?> refiner = refiners.get(refinerKey);
-						Object refinerId = chunk.getValue();
-						Function<Map<String, String>, ?> deserializer = deserializers.get(refinerKey);
-						@SuppressWarnings("unchecked")
-						Object idObject = deserializer.apply((Map<String, String>) refinerId);
-						UnaryOperator<Source<?>> refinement = parentSource -> resolveHelper(refiner, idObject,
-								parentSource);
-						return refinement;
-					}).<Source<?>>reduce(source, (s, op) -> op.apply(s), (s1, s2) -> {
-						throw new RuntimeException("Not implemented");
-					});
+			@Override
+			public String serialize(Refiner<?, ?, ?> refiner) {
+				if (mailRefiner.equals(refiner)) {
+					return mailId;
+				} else {
+					throw new IllegalArgumentException("Not supported: " + refiner);
+				}
+			}
+
+			@Override
+			public Refiner<?, ?, ?> deserialize(String serial) {
+				if (mailId.equals(serial)) {
+					return mailRefiner;
+				} else {
+					throw new IllegalArgumentException("Not supported: " + serial);
+				}
+			}
 		};
+		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
+		RefinerIdPersister refIdPersister = new RefinerIdPersister() {
+			@Override
+			public <I> Object serialize(Refiner<?, I, ?> refiner, I id) {
+				if (id instanceof MailId mailId) {
+					return Map.of(//
+							"dateTime", dateParser.format(mailId.datetime), //
+							"email", mailId.sender//
+					);
+				} else {
+					throw new RuntimeException("Not supported: refiner " + refiner + " with ID " + id);
+				}
+			}
 
-		{
-			Repository<Mail, MailId> repo = repoSource.resolve();
-			Source<?> source = repoSource;
-			List<Y> id = sourceIdentifier.apply(source);
-			System.out.println("root=mails = " + id.equals("root=mails"));
-			Source<?> retrieved = sourceResolver.apply(id);
-			System.out.println("source = " + source.equals(retrieved));
-			Object resolved = retrieved.resolve();
-			System.out.println("object = " + repo.equals(resolved));
-		}
-
-		MailId mailId = mailRepository.streamKeys().findFirst().orElseThrow();
-		Source<Mail> mailSource = repoSource.refine(mailRefiner, mailId);
-		{
-			Mail mail = mailSource.resolve();
-			Source<?> source = mailSource;
-			List<Y> id = sourceIdentifier.apply(source);
-			System.out.println("root=mailsµid=xxx = " + id.equals(
-					"root=mailsµid=L'équipe Google Community¤googlecommunityteam-noreply@google.com¤2023-01-20T08:57:35+01:00[Europe/Paris]"));
-			Source<?> retrieved = sourceResolver.apply(id);
-			System.out.println("source = " + source.equals(retrieved));
-			Object resolved = retrieved.resolve();
-			System.out.println("object = " + mail.equals(resolved));
-		}
-
-		Repository<Issue, IssueId> issueRepository = createIssueRepository(issueRepositoryPath, sourceIdentifier,
-				sourceResolver);
+			@SuppressWarnings("unchecked")
+			@Override
+			public <I> I deserialize(Refiner<?, I, ?> refiner, Object serial) {
+				if (refiner == mailRefiner) {
+					Map<String, String> map = (Map<String, String>) serial;
+					ZonedDateTime dateTime = ZonedDateTime.from(dateParser.parse(map.get("dateTime")));
+					String email = map.get("email");
+					return (I) new MailId(dateTime, email);
+				} else {
+					throw new RuntimeException("Not supported: refiner " + refiner + " with serial " + serial);
+				}
+			}
+		};
+		Repository<Issue, IssueId> issueRepository = createIssueRepository(//
+				issueRepositoryPath, sourceTracker::trackOf, //
+				sourcePersister, //
+				refinerPersister, //
+				refIdPersister//
+		);
 		LOGGER.accept("=================");
 		List<Mail> mails = mailRepository.streamResources().toList();
 		{
@@ -241,6 +179,8 @@ public class Main {
 			// TODO Notify with email section
 			// TODO Issue repository
 			LOGGER.accept("**********************");
+			MailId mailId = mailRepository.streamKeys().findFirst().orElseThrow();
+			Source<Mail> mailSource = mailRepoSource.refine(mailRefiner, mailId);
 			Mail mail = mailSource.resolve();
 			LOGGER.accept("From: " + mail.sender());
 			LOGGER.accept("To: " + mail.receivers().toList());
@@ -249,7 +189,7 @@ public class Main {
 			LOGGER.accept("Body:");
 			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
 			if (issueRepository.stream().count() == 0) {
-				Issue issue = Issue.create("Panne de chauffage", mail.receivedDate());
+				Issue issue = Issue.createEmpty("Panne de chauffage", mail.receivedDate());
 				issue.notify(Issue.Status.REPORTED, mailSource, mail.receivedDate());
 				IssueId issueId = issueRepository.add(issue);
 				LOGGER.accept("Added: " + issueId);
@@ -308,85 +248,28 @@ public class Main {
 		}
 	}
 
-	@SuppressWarnings("unchecked")
-	private static <T1, I, T2> Source<T2> resolveHelper(Refiner<T1, I, T2> refiner, Object idObject,
-			Source<?> parentSource) {
-		return refiner.resolve((Source<T1>) parentSource, (I) idObject);
+	interface Persister<T> {
+		String serialize(T object);
+
+		T deserialize(String serial);
 	}
 
-	public static class IssueData {
-		private String title;
-		private String dateTime;
-		private List<ItemData> history;
+	interface RefinerIdPersister {
+		<I> Object serialize(Refiner<?, I, ?> refiner, I id);
 
-		public static class ItemData {
-			private String dateTime;
-			private String status;
-			private SourceData source;
-
-			public static class SourceData {
-				private final List<Y> list;
-
-				public SourceData(List<Y> list) {
-					this.list = list;
-				}
-			}
-
-			public String getDateTime() {
-				return dateTime;
-			}
-
-			public void setDateTime(String dateTime) {
-				this.dateTime = dateTime;
-			}
-
-			public String getStatus() {
-				return status;
-			}
-
-			public void setStatus(String status) {
-				this.status = status;
-			}
-
-			public SourceData getSource() {
-				return source;
-			}
-
-			public void setSource(SourceData source) {
-				this.source = source;
-			}
-		}
-
-		public String getTitle() {
-			return title;
-		}
-
-		public void setTitle(String title) {
-			this.title = title;
-		}
-
-		public String getDateTime() {
-			return dateTime;
-		}
-
-		public void setDateTime(String dateTime) {
-			this.dateTime = dateTime;
-		}
-
-		public List<ItemData> getHistory() {
-			return history;
-		}
-
-		public void setHistory(List<ItemData> history) {
-			this.history = history;
-		}
+		<I> I deserialize(Refiner<?, I, ?> refiner, Object serial);
 	}
 
-	private static <T> Repository<Issue, IssueId> createIssueRepository(Path repositoryPath,
-			Function<Source<?>, List<Y>> sourceSerializer, Function<List<Y>, Source<?>> sourceDeserializer) {
+	private static <T> Repository<Issue, IssueId> createIssueRepository(//
+			Path repositoryPath, //
+			Function<Source<?>, Source.Track> sourceTracker, //
+			Persister<Source<?>> sourcePersister, //
+			Persister<Refiner<?, ?, ?>> refinerPersister, //
+			RefinerIdPersister refinerIdPersister//
+	) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
+		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
 
-		// TODO Remove intermediary objects (IssueData, ItemData, Y, etc.)
 		// TODO Compose Issue YAML parser with Source YAML parser
 		DumperOptions dumpOptions = new DumperOptions();
 		dumpOptions.setLineBreak(LineBreak.UNIX);
@@ -397,23 +280,30 @@ public class Main {
 				representers.put(null, new Represent() {
 					@Override
 					public Node representData(Object data) {
-						IssueData issue = (IssueData) data;
+						Issue issue = (Issue) data;
 
 						List<NodeTuple> issueTuples = new LinkedList<>();
-						issueTuples.add(tupleFor(issue, "title", issue.title));
-						issueTuples.add(tupleFor(issue, "dateTime", issue.dateTime));
-						issueTuples.add(historyTuple(issue.history));
+						issueTuples.add(titleTuple(issue.title()));
+						issueTuples.add(dateTimeTuple(issue.dateTime()));
+						issueTuples.add(historyTuple(issue.history()));
 
 						return new MappingNode(Tag.MAP, issueTuples, defaultFlowStyle);
 					}
 
-					private NodeTuple historyTuple(List<ItemData> history) {
+					private NodeTuple titleTuple(String title) {
+						return new NodeTuple(//
+								new ScalarNode(Tag.STR, "title", null, null, ScalarStyle.PLAIN), //
+								new ScalarNode(Tag.STR, title, null, null, ScalarStyle.PLAIN)//
+						);
+					}
+
+					private NodeTuple historyTuple(Issue.History history) {
 						List<Node> itemNodes = history.stream().map(item -> {
-							Tag itemTag = new Tag("!" + item.status.toLowerCase());
+							Tag itemTag = new Tag("!" + item.status().name().toLowerCase());
 
 							List<NodeTuple> itemTuples = new LinkedList<>();
-							itemTuples.add(tupleFor(item, "dateTime", item.dateTime));
-							itemTuples.add(sourceTuple(item.source));
+							itemTuples.add(dateTimeTuple(item.dateTime()));
+							itemTuples.add(sourceTuple(item.source()));
 
 							return (Node) new MappingNode(itemTag, itemTuples, defaultFlowStyle);
 						}).toList();
@@ -424,18 +314,27 @@ public class Main {
 						);
 					}
 
-					private NodeTuple sourceTuple(SourceData source) {
+					private NodeTuple dateTimeTuple(ZonedDateTime dateTime) {
+						return new NodeTuple(//
+								new ScalarNode(Tag.STR, "dateTime", null, null, ScalarStyle.PLAIN), //
+								new ScalarNode(Tag.STR, dateParser.format(dateTime), null, null, ScalarStyle.PLAIN)//
+						);
+					}
+
+					private NodeTuple sourceTuple(Source<?> source) {
 						List<Node> nodes = new LinkedList<>();
 
-						List<Y> list = source.list;
-						Y root = list.get(0);
-						nodes.add(representScalar(Tag.STR, (String) root.getValue()));
+						Source.Track list = sourceTracker.apply(source);
+						Source.Track.Root node = list.root();
+						nodes.add(representScalar(Tag.STR, sourcePersister.serialize(node.source())));
 
-						list.stream().skip(1).forEach(y -> {
-							Node node = tupleFor(y, "value", y.value).getValueNode();
-							node.setTag(new Tag("!" + y.getName()));
-							nodes.add(node);
-						});
+						Source.Track.Transitive current = node;
+						while (current.hasTransition()) {
+							Source.Track.Transition<?> transition = current.transition();
+							Node refNode = refineNodeHelper(transition, refinerPersister, refinerIdPersister);
+							nodes.add(refNode);
+							current = transition;
+						}
 
 						return new NodeTuple(//
 								new ScalarNode(Tag.STR, "source", null, null, ScalarStyle.PLAIN), //
@@ -443,8 +342,21 @@ public class Main {
 						);
 					}
 
-					private NodeTuple tupleFor(Object object, String name, Object value) {
-						return representJavaBeanProperty(object, propertyOf(object, name), value, null);
+					private <I> Node refineNodeHelper(Source.Track.Transition<I> transition,
+							Persister<Refiner<?, ?, ?>> refinerPersister, RefinerIdPersister refIdPersister) {
+						Source.Refiner<?, I, ?> ref = transition.refiner();
+						I refId = transition.id();
+						Object serial = refIdPersister.serialize(ref, refId);
+						var refObject = new Object() {
+							public Object getSerial() {
+								return serial;
+							}
+						};
+						Property serialProperty = propertyOf(refObject, "serial");
+						Node refNode = representJavaBeanProperty(refObject, serialProperty, refObject.getSerial(), null)
+								.getValueNode();
+						refNode.setTag(new Tag("!" + refinerPersister.serialize(ref)));
+						return refNode;
 					}
 
 					private Property propertyOf(Object object, String name) {
@@ -455,104 +367,104 @@ public class Main {
 		};
 		LoaderOptions loaderOptions = new LoaderOptions();
 		loaderOptions.setTagInspector(tag -> true);
-		Constructor constructor = new Constructor(IssueData.class, loaderOptions) {
+		Constructor constructor = new Constructor(Issue.class, loaderOptions) {
 			{
 				yamlConstructors.put(null, new AbstractConstruct() {
 
 					@Override
 					public Object construct(Node node) {
 						MappingNode issueNode = (MappingNode) node;
-						IssueData issueData = new IssueData();
+						var wrapper = new Object() {
+							String title;
+							ZonedDateTime dateTime;
+							History history;
+						};
 						issueNode.getValue().forEach(tuple -> {
 							String tupleKey = ((ScalarNode) tuple.getKeyNode()).getValue();
 							if (tupleKey.equals("title")) {
-								issueData.title = extractScalarValue(tuple);
+								wrapper.title = extractTitle(tuple);
 							} else if (tupleKey.equals("dateTime")) {
-								issueData.dateTime = extractScalarValue(tuple);
+								wrapper.dateTime = extractDateTime(tuple);
 							} else if (tupleKey.equals("history")) {
-								issueData.history = extractIssueHistory(tuple);
+								wrapper.history = extractHistory(tuple);
 							} else {
 								throw new IllegalStateException("Not supported: " + tupleKey);
 							}
 						});
-						return issueData;
+						return Issue.create(wrapper.title, wrapper.dateTime, wrapper.history);
 					}
 
-					private List<ItemData> extractIssueHistory(NodeTuple issueTuple) {
+					private Issue.History extractHistory(NodeTuple issueTuple) {
 						return ((SequenceNode) issueTuple.getValueNode()).getValue().stream()//
 								.map(itemNode -> (MappingNode) itemNode)//
 								.map(itemNode -> {
-									ItemData itemData = new ItemData();
-
-									itemData.status = extractItemStatus(itemNode);
-
+									Status status = extractIssueStatus(itemNode);
+									var wrapper = new Object() {
+										ZonedDateTime dateTime;
+										Source<?> source;
+									};
 									itemNode.getValue().forEach(tuple -> {
 										String tupleKey = ((ScalarNode) tuple.getKeyNode()).getValue();
 										if (tupleKey.equals("dateTime")) {
-											itemData.dateTime = extractScalarValue(tuple);
+											wrapper.dateTime = extractDateTime(tuple);
 										} else if (tupleKey.equals("source")) {
-											itemData.source = extractItemSource(tuple);
+											wrapper.source = extractSource(tuple);
 										} else {
 											throw new IllegalStateException("Not supported: " + tupleKey);
 										}
 									});
-									return itemData;
-								}).toList();
+									return new Issue.History.Item(wrapper.dateTime, status, wrapper.source);
+								}).collect(Issue.History::createEmpty, Issue.History::add, (h1, h2) -> {
+									throw new RuntimeException("Not implermented");
+								});
 					}
 
-					private SourceData extractItemSource(NodeTuple tuple) {
+					private Source<?> extractSource(NodeTuple tuple) {
 						List<Node> nodes = ((SequenceNode) tuple.getValueNode()).getValue();
-						List<Y> list = new LinkedList<>();
+						Source<?>[] source = { null };
 
 						Node rootNode = nodes.get(0);
-						list.add(new Y.Root((String) constructScalar((ScalarNode) rootNode)));
+						String rootId = (String) constructScalar((ScalarNode) rootNode);
+						source[0] = sourcePersister.deserialize(rootId);
 
 						nodes.stream().skip(1).forEach(subnode -> {
 							String name = subnode.getTag().getValue().substring(1);
+							Refiner<?, ?, ?> ref = refinerPersister.deserialize(name);
 							subnode.setTag(Tag.MAP);
 							Object value = getConstructor(subnode).construct(subnode);
-							list.add(new Y(name, value));
+							MailId id = (MailId) refinerIdPersister.deserialize(ref, value);
+							refineHelper(source, ref, id);
 						});
 
-						return new SourceData(list);
+						return source[0];
 					}
 
-					private String extractItemStatus(MappingNode itemNode) {
-						return itemNode.getTag().getValue().substring(1).toUpperCase();
+					@SuppressWarnings("unchecked")
+					private <X, Y> void refineHelper(Source<?>[] source, Refiner<X, Y, ?> ref, Object id) {
+						source[0] = ((Source<X>) source[0]).refine(ref, (Y) id);
 					}
 
-					private String extractScalarValue(NodeTuple tuple) {
+					private Issue.Status extractIssueStatus(MappingNode itemNode) {
+						return Issue.Status.valueOf(itemNode.getTag().getValue().substring(1).toUpperCase());
+					}
+
+					private String extractTitle(NodeTuple tuple) {
 						return ((ScalarNode) tuple.getValueNode()).getValue();
+					}
+
+					private ZonedDateTime extractDateTime(NodeTuple tuple) {
+						return ZonedDateTime.from(dateParser.parse(((ScalarNode) tuple.getValueNode()).getValue()));
 					}
 				});
 			}
 		};
 		Yaml yamlParser = new Yaml(constructor, representer, dumpOptions);
-		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
 
 		Function<Issue, byte[]> resourceSerializer = issue -> {
-			IssueData data = new IssueData();
-			data.title = issue.title();
-			data.dateTime = dateParser.format(issue.datetime());
-			data.history = issue.history().stream().map(item -> {
-				ItemData itemData = new ItemData();
-				itemData.dateTime = dateParser.format(item.datetime());
-				itemData.status = item.status().name();
-				itemData.source = new SourceData(sourceSerializer.apply(item.source()));
-				return itemData;
-			}).toList();
-			return yamlParser.dump(data).getBytes();
+			return yamlParser.dump(issue).getBytes();
 		};
 		Function<Supplier<byte[]>, Issue> resourceDeserializer = bytes -> {
-			String s = new String(bytes.get());
-			IssueData data = yamlParser.load(s);
-			Issue issue = Issue.create(data.title, ZonedDateTime.from(dateParser.parse(data.dateTime)));
-			History history = issue.history();
-			for (ItemData itemData : data.history) {
-				history.add(new History.Item(ZonedDateTime.from(dateParser.parse(itemData.dateTime)),
-						Issue.Status.valueOf(itemData.status), sourceDeserializer.apply(itemData.source.list)));
-			}
-			return issue;
+			return yamlParser.load(new String(bytes.get()));
 		};
 
 		String extension = ".issue";
@@ -562,7 +474,7 @@ public class Main {
 			throw new RuntimeException("Cannot create issue repository directory: " + repositoryPath, cause);
 		}
 		Function<IssueId, Path> pathResolver = (id) -> {
-			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.issue().datetime()).replace('-',
+			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.issue().dateTime()).replace('-',
 					File.separatorChar);
 			Path dayDirectory = repositoryPath.resolve(datePart);
 			try {
@@ -571,7 +483,7 @@ public class Main {
 				throw new RuntimeException("Cannot create issue directory: " + dayDirectory, cause);
 			}
 
-			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.issue().datetime()).replace(':', '-');
+			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.issue().dateTime()).replace(':', '-');
 			String addressPart = id.issue().title().replaceAll("[^a-zA-Z0-9]+", "-");
 			return dayDirectory.resolve(timePart + "_" + addressPart + extension);
 		};
