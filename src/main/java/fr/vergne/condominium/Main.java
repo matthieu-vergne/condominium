@@ -201,7 +201,7 @@ public class Main {
 			Serializer<Refiner<?, ?, ?>, String> refinerSerializer, //
 			RefinerIdSerializer refinerIdSerializer//
 	) {
-		Function<Issue, IssueId> identifier = issue -> new IssueId(issue);
+		Function<Issue, IssueId> identifier = issue -> new IssueId(issue.dateTime());
 
 		Serializer<Issue, String> issueYamlSerializer = IssueYamlSerializer.create(sourceTracker, sourceSerializer,
 				refinerSerializer, refinerIdSerializer);
@@ -219,7 +219,7 @@ public class Main {
 			throw new RuntimeException("Cannot create issue repository directory: " + repositoryPath, cause);
 		}
 		Function<IssueId, Path> pathResolver = (id) -> {
-			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.issue().dateTime()).replace('-',
+			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.dateTime()).replace('-',
 					File.separatorChar);
 			Path dayDirectory = repositoryPath.resolve(datePart);
 			try {
@@ -228,9 +228,8 @@ public class Main {
 				throw new RuntimeException("Cannot create issue directory: " + dayDirectory, cause);
 			}
 
-			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.issue().dateTime()).replace(':', '-');
-			String addressPart = id.issue().title().replaceAll("[^a-zA-Z0-9]+", "-");
-			return dayDirectory.resolve(timePart + "_" + addressPart + extension);
+			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.dateTime()).replace(':', '-');
+			return dayDirectory.resolve(timePart + extension);
 		};
 		Supplier<Stream<Path>> pathFinder = () -> {
 			try {
@@ -285,7 +284,7 @@ public class Main {
 		return mboxRepository;
 	}
 
-	record IssueId(Issue issue) {
+	record IssueId(ZonedDateTime dateTime) {
 	}
 
 	record MailId(ZonedDateTime datetime, String sender) {
