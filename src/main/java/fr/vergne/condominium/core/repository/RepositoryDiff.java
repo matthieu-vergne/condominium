@@ -8,36 +8,36 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-public interface RepositoryDiff<R, K> {
+public interface RepositoryDiff<K, R> {
 
-	Stream<ResourceDiff<R, K>> stream();
+	Stream<ResourceDiff<K, R>> stream();
 
-	default RepositoryDiff<R, K> snapshot() {
-		List<ResourceDiff<R, K>> diffs = stream().toList();
-		return new RepositoryDiff<R, K>() {
+	default RepositoryDiff<K, R> snapshot() {
+		List<ResourceDiff<K, R>> diffs = stream().toList();
+		return new RepositoryDiff<>() {
 
 			@Override
-			public Stream<ResourceDiff<R, K>> stream() {
+			public Stream<ResourceDiff<K, R>> stream() {
 				return diffs.stream();
 			}
 
 			@Override
-			public RepositoryDiff<R, K> snapshot() {
+			public RepositoryDiff<K, R> snapshot() {
 				// Don't recreate a snapshot if we already have one
 				return this;
 			}
 		};
 	}
 
-	default void apply(Repository<R, K> repository) {
+	default void apply(Repository<K, R> repository) {
 		stream().forEach(diff -> diff.applyTo(repository));
 	}
 
-	static <R, K> RepositoryDiff<R, K> of(Repository<R, K> repo1, Repository<R, K> repo2) {
-		return new RepositoryDiff<R, K>() {
+	static <K, R> RepositoryDiff<K, R> of(Repository<K, R> repo1, Repository<K, R> repo2) {
+		return new RepositoryDiff<K, R>() {
 			@Override
-			public Stream<ResourceDiff<R, K>> stream() {
-				Stream<ResourceDiff<R, K>> replacementsAndRemovals = repo1.stream()//
+			public Stream<ResourceDiff<K, R>> stream() {
+				Stream<ResourceDiff<K, R>> replacementsAndRemovals = repo1.stream()//
 						.map(entry1 -> {
 							K key1 = entry1.getKey();
 							R resource1 = entry1.getValue();
@@ -65,7 +65,7 @@ public interface RepositoryDiff<R, K> {
 							return null;
 						}).filter(x -> x != null);
 
-				Stream<ResourceDiff<R, K>> additions = repo2.stream()//
+				Stream<ResourceDiff<K, R>> additions = repo2.stream()//
 						.map(entry2 -> {
 							K key2 = entry2.getKey();
 							R resource2 = entry2.getValue();
@@ -82,11 +82,11 @@ public interface RepositoryDiff<R, K> {
 		};
 	}
 
-	public class ResourceDiff<R, K> {
+	public class ResourceDiff<K, R> {
 		private final Action action;
-		private final Values<R, K> values;
+		private final Values<K, R> values;
 
-		private ResourceDiff(Action action, Values<R, K> values) {
+		private ResourceDiff(Action action, Values<K, R> values) {
 			this.action = requireNonNull(action);
 			this.values = requireNonNull(values);
 		}
@@ -95,11 +95,11 @@ public interface RepositoryDiff<R, K> {
 			return this.action == action;
 		}
 
-		public Values<R, K> values() {
+		public Values<K, R> values() {
 			return values;
 		}
 
-		public void applyTo(Repository<R, K> repository) {
+		public void applyTo(Repository<K, R> repository) {
 			action.apply(values, repository);
 		}
 
@@ -119,14 +119,14 @@ public interface RepositoryDiff<R, K> {
 			return values().hashCode();
 		}
 
-		public record Values<R, K>(K oldKey, R oldResource, K newKey, R newResource) {
+		public record Values<K, R>(K oldKey, R oldResource, K newKey, R newResource) {
 		}
 
 		public enum Action {
 			ADDITION(new Action.Applier() {
 
 				@Override
-				public <R, K> void apply(Values<R, K> values, Repository<R, K> repository) {
+				public <K, R> void apply(Values<K, R> values, Repository<K, R> repository) {
 					K actualKey = repository.add(values.newResource);
 					if (!actualKey.equals(values.newKey)) {
 						throw new InvalidApplyException(repository, "adding " + values.newResource + " create "
@@ -137,7 +137,7 @@ public interface RepositoryDiff<R, K> {
 			REMOVAL(new Action.Applier() {
 
 				@Override
-				public <R, K> void apply(Values<R, K> values, Repository<R, K> repository) {
+				public <K, R> void apply(Values<K, R> values, Repository<K, R> repository) {
 					R actualResource = repository.remove(values.oldKey).orElse(null);
 					if (!actualResource.equals(values.oldResource)) {
 						throw new InvalidApplyException(repository, "removing " + values.oldKey + " returns "
@@ -148,7 +148,7 @@ public interface RepositoryDiff<R, K> {
 			RESOURCE_REPLACEMENT(new Action.Applier() {
 
 				@Override
-				public <R, K> void apply(Values<R, K> values, Repository<R, K> repository) {
+				public <K, R> void apply(Values<K, R> values, Repository<K, R> repository) {
 					R removedResource = repository.remove(values.oldKey).orElse(null);
 					if (!removedResource.equals(values.oldResource)) {
 						throw new InvalidApplyException(repository, "replacing " + values.oldKey + " returns "
@@ -165,7 +165,7 @@ public interface RepositoryDiff<R, K> {
 			KEY_REPLACEMENT(new Action.Applier() {
 
 				@Override
-				public <R, K> void apply(Values<R, K> values, Repository<R, K> repository) {
+				public <K, R> void apply(Values<K, R> values, Repository<K, R> repository) {
 					R removedResource = repository.remove(values.oldKey).orElse(null);
 					if (!removedResource.equals(values.oldResource)) {
 						throw new InvalidApplyException(repository, "reidentifying " + values.oldKey + " returns "
@@ -181,7 +181,7 @@ public interface RepositoryDiff<R, K> {
 			}, values -> "Reidentify[" + values.oldKey + ", " + values.oldResource + "]With[" + values.newKey + "]");
 
 			public static interface Applier {
-				<R, K> void apply(Values<R, K> values, Repository<R, K> repository);
+				<K, R> void apply(Values<K, R> values, Repository<K, R> repository);
 			}
 
 			private final Applier applier;
@@ -192,7 +192,7 @@ public interface RepositoryDiff<R, K> {
 				this.stringFormatter = stringFormatter;
 			}
 
-			public <R, K> void apply(Values<R, K> values, Repository<R, K> repository) {
+			public <K, R> void apply(Values<K, R> values, Repository<K, R> repository) {
 				applier.apply(values, repository);
 			}
 
@@ -201,19 +201,19 @@ public interface RepositoryDiff<R, K> {
 			}
 		}
 
-		public static <R, K> ResourceDiff<R, K> add(K newKey, R newResource) {
+		public static <K, R> ResourceDiff<K, R> add(K newKey, R newResource) {
 			return new ResourceDiff<>(Action.ADDITION, new Values<>(null, null, newKey, newResource));
 		}
 
-		public static <R, K> ResourceDiff<R, K> remove(K oldKey, R oldResource) {
+		public static <K, R> ResourceDiff<K, R> remove(K oldKey, R oldResource) {
 			return new ResourceDiff<>(Action.REMOVAL, new Values<>(oldKey, oldResource, null, null));
 		}
 
-		public static <R, K> ResourceDiff<R, K> replaceResource(K key, R oldResource, R newResource) {
+		public static <K, R> ResourceDiff<K, R> replaceResource(K key, R oldResource, R newResource) {
 			return new ResourceDiff<>(Action.RESOURCE_REPLACEMENT, new Values<>(key, oldResource, key, newResource));
 		}
 
-		public static <R, K> ResourceDiff<R, K> replaceKey(K oldKey, K newKey, R resource) {
+		public static <K, R> ResourceDiff<K, R> replaceKey(K oldKey, K newKey, R resource) {
 			return new ResourceDiff<>(Action.KEY_REPLACEMENT, new Values<>(oldKey, resource, newKey, resource));
 		}
 	}

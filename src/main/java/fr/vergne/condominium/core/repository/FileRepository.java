@@ -14,7 +14,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-public class FileRepository<R, K> implements Repository<R, K> {
+public class FileRepository<K, R> implements Repository<K, R> {
 
 	private Function<R, K> identifier;
 	private Function<R, byte[]> resourceSerializer;
@@ -34,7 +34,7 @@ public class FileRepository<R, K> implements Repository<R, K> {
 
 	// TODO Create method for inputstream instead of bytes, to avoid preloading all
 	// the data in memory
-	public static <R, K> FileRepository<R, K> overBytes(Function<R, K> identifier,
+	public static <K, R> FileRepository<K, R> overBytes(Function<R, K> identifier,
 			Function<R, byte[]> resourceSerializer, Function<Supplier<byte[]>, R> resourceDeserializer,
 			Function<K, Path> pathResolver, Supplier<Stream<Path>> pathFinder) {
 		return new FileRepository<>(identifier, resourceSerializer, resourceDeserializer, pathResolver, pathFinder);

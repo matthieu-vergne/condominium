@@ -7,7 +7,7 @@ import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-public class MemoryRepository<R, K> implements Repository<R, K> {
+public class MemoryRepository<K, R> implements Repository<K, R> {
 
 	private final Function<R, K> identifier;
 	private final Map<K, R> resources;

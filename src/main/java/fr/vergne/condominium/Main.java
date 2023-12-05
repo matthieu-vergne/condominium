@@ -67,21 +67,21 @@ public class Main {
 		Path mailRepositoryPath = outFolderPath.resolve("mails");
 		Path issueRepositoryPath = outFolderPath.resolve("issues");
 
-		Repository<Mail, MailId> mailRepository = createMailRepository(mailRepositoryPath);
+		Repository<MailId, Mail> mailRepository = createMailRepository(mailRepositoryPath);
 
 		LOGGER.accept("--- UPDATE ---");
 //		updateMailsExceptRemovals(loadMBox(mboxPath, confMailCleaningPath), mailRepository);
 		LOGGER.accept("--- /UPDATE ---");
 
 		Source.Tracker sourceTracker = Source.Tracker.create(Source::create, Source.Refiner::create);
-		Source<Repository<Mail, MailId>> mailRepoSource = sourceTracker.createSource(mailRepository);
-		Source.Refiner<Repository<Mail, MailId>, MailId, Mail> mailRefiner = sourceTracker
-				.createRefiner(Repository<Mail, MailId>::mustGet);
+		Source<Repository<MailId, Mail>> mailRepoSource = sourceTracker.createSource(mailRepository);
+		Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner = sourceTracker
+				.createRefiner(Repository<MailId, Mail>::mustGet);
 
 		Serializer<Source<?>, String> sourceSerializer = Serializer.createFromMap(Map.of(mailRepoSource, "mails"));
 		Serializer<Refiner<?, ?, ?>, String> refinerSerializer = Serializer.createFromMap(Map.of(mailRefiner, "id"));
 		RefinerIdSerializer refinerIdSerializer = createRefinerIdSerializer(mailRefiner);
-		Repository<Issue, IssueId> issueRepository = createIssueRepository(//
+		Repository<IssueId, Issue> issueRepository = createIssueRepository(//
 				issueRepositoryPath, sourceTracker::trackOf, //
 				sourceSerializer, refinerSerializer, refinerIdSerializer//
 		);
@@ -163,7 +163,7 @@ public class Main {
 	}
 
 	private static RefinerIdSerializer createRefinerIdSerializer(
-			Source.Refiner<Repository<Mail, MailId>, MailId, Mail> mailRefiner) {
+			Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner) {
 		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
 		return new RefinerIdSerializer() {
 
@@ -194,7 +194,7 @@ public class Main {
 		};
 	}
 
-	private static <T> Repository<Issue, IssueId> createIssueRepository(//
+	private static <T> Repository<IssueId, Issue> createIssueRepository(//
 			Path repositoryPath, //
 			Function<Source<?>, Source.Track> sourceTracker, //
 			Serializer<Source<?>, String> sourceSerializer, //
@@ -247,12 +247,12 @@ public class Main {
 		);
 	}
 
-	private static void updateMailsExceptRemovals(Repository<Mail, MailId> mboxRepository,
-			Repository<Mail, MailId> mailRepository) {
+	private static void updateMailsExceptRemovals(Repository<MailId, Mail> mboxRepository,
+			Repository<MailId, Mail> mailRepository) {
 		RepositoryDiff.of(mailRepository, mboxRepository)//
 				.stream()//
 				.peek(diff -> {
-					Values<Mail, MailId> values = diff.values();
+					Values<MailId, Mail> values = diff.values();
 					if (diff.is(Action.ADDITION)) {
 						LOGGER.accept("Add \"" + values.newResource().subject() + "\" " + values.newKey());
 					} else if (diff.is(Action.REMOVAL)) {
@@ -271,10 +271,10 @@ public class Main {
 				.forEach(diff -> diff.applyTo(mailRepository));
 	}
 
-	private static Repository<Mail, MailId> loadMBox(Path mboxPath, Path confMailCleaningPath) {
+	private static Repository<MailId, Mail> loadMBox(Path mboxPath, Path confMailCleaningPath) {
 		MBoxParser parser = new MBoxParser(LOGGER);
 		MailCleaningConfiguration confMailCleaning = MailCleaningConfiguration.parser().apply(confMailCleaningPath);
-		Repository<Mail, MailId> mboxRepository = new MemoryRepository<>(MailId::fromMail, new LinkedHashMap<>());
+		Repository<MailId, Mail> mboxRepository = new MemoryRepository<>(MailId::fromMail, new LinkedHashMap<>());
 		parser.parseMBox(mboxPath)//
 				.filter(on(confMailCleaning))//
 				// .limit(40)// TODO Remove
@@ -293,7 +293,7 @@ public class Main {
 		}
 	}
 
-	private static FileRepository<Mail, MailId> createMailRepository(Path repositoryPath) {
+	private static FileRepository<MailId, Mail> createMailRepository(Path repositoryPath) {
 		Function<Mail, MailId> identifier = MailId::fromMail;
 
 		MBoxParser repositoryParser = new MBoxParser(LOGGER);
