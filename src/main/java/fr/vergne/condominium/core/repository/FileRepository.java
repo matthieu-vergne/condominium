@@ -10,11 +10,12 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-public class FileRepository<K, R> implements Repository.Sessionable<K, R> {
+public class FileRepository<K, R> implements Repository.Updatable<K, R> {
 
 	private Function<R, K> identifier;
 	private Function<R, byte[]> resourceSerializer;
@@ -53,6 +54,23 @@ public class FileRepository<K, R> implements Repository.Sessionable<K, R> {
 			throw new CannotWriteFileException(key, path, cause);
 		}
 		return key;
+	}
+
+	@Override
+	public void update(K key, R resource) {
+		Path path = pathResolver.apply(key);
+		if (!exists(path)) {
+			throw new UnknownResourceKeyException(key);
+		}
+		K newKey = identifier.apply(resource);
+		if (!Objects.equals(key, newKey)) {
+			throw new IllegalArgumentException("Povided key " + key + " does not match resource key " + newKey);
+		}
+		try {
+			write(path, resourceSerializer.apply(resource));
+		} catch (IOException cause) {
+			throw new CannotWriteFileException(key, path, cause);
+		}
 	}
 
 	@Override
@@ -161,65 +179,5 @@ public class FileRepository<K, R> implements Repository.Sessionable<K, R> {
 		public CannotDeleteFileException(Object key, Path path, IOException cause) {
 			super("Cannot delete " + key + " at " + path, cause);
 		}
-	}
-
-	@Override
-	public Session<K, R> createSession() {
-		return new Session<K, R>() {
-
-			@Override
-			public Repository<K, R> repository() {
-				return new Repository<K, R>() {
-
-					@Override
-					public K add(R resource) throws AlredyExistingResourceKeyException {
-						// TODO Auto-generated method stub
-						throw new RuntimeException("Not implemented yet");
-					}
-
-					@Override
-					public Optional<K> key(R resource) {
-						// TODO Auto-generated method stub
-						throw new RuntimeException("Not implemented yet");
-					}
-
-					@Override
-					public boolean has(K key) {
-						// TODO Auto-generated method stub
-						throw new RuntimeException("Not implemented yet");
-					}
-
-					@Override
-					public Optional<R> get(K key) {
-						// TODO Auto-generated method stub
-						throw new RuntimeException("Not implemented yet");
-					}
-
-					@Override
-					public Optional<R> remove(K key) {
-						// TODO Auto-generated method stub
-						throw new RuntimeException("Not implemented yet");
-					}
-
-					@Override
-					public Stream<Entry<K, R>> stream() {
-						// TODO Auto-generated method stub
-						throw new RuntimeException("Not implemented yet");
-					}
-				};
-			}
-
-			@Override
-			public void commit() {
-				// TODO Auto-generated method stub
-				throw new RuntimeException("Not implemented yet");
-			}
-
-			@Override
-			public void rollback() {
-				// TODO Auto-generated method stub
-				throw new RuntimeException("Not implemented yet");
-			}
-		};
 	}
 }

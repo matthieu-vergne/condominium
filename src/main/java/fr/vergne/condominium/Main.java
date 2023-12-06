@@ -22,7 +22,6 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import fr.vergne.condominium.Main.IssueId;
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.issue.Issue;
@@ -40,7 +39,6 @@ import fr.vergne.condominium.core.parser.yaml.SourceYamlSerializer;
 import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.MemoryRepository;
 import fr.vergne.condominium.core.repository.Repository;
-import fr.vergne.condominium.core.repository.Repository.Session;
 import fr.vergne.condominium.core.repository.RepositoryDiff;
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Action;
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Values;
@@ -83,7 +81,7 @@ public class Main {
 		Serializer<Source<?>, String> sourceSerializer = Serializer.createFromMap(Map.of(mailRepoSource, "mails"));
 		Serializer<Refiner<?, ?, ?>, String> refinerSerializer = Serializer.createFromMap(Map.of(mailRefiner, "id"));
 		RefinerIdSerializer refinerIdSerializer = createRefinerIdSerializer(mailRefiner);
-		Repository.Sessionable<IssueId, Issue> issueRepository = createIssueRepository(//
+		Repository.Updatable<IssueId, Issue> issueRepository = createIssueRepository(//
 				issueRepositoryPath, sourceTracker::trackOf, //
 				sourceSerializer, refinerSerializer, refinerIdSerializer//
 		);
@@ -104,21 +102,16 @@ public class Main {
 			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
 			LOGGER.accept("Source:");
 			LOGGER.accept(sourceParser.serialize(mailSource));
-			Session<IssueId,Issue> session = issueRepository.createSession();
-			Repository<IssueId, Issue> sessionRepository = session.repository();
-			IssueId issueId = sessionRepository.streamKeys().findFirst().get();
+			IssueId issueId = issueRepository.streamKeys().findFirst().get();
 			LOGGER.accept("Retrieving: " + issueId);
-			Issue issue = sessionRepository.mustGet(issueId);
-			// TODO Update repository
-			issue.notify(Issue.Status.CONFIRMED, mailSource, mail.receivedDate());
-			session.rollback();
-			issue.notify(Issue.Status.REPORTED, mailSource, mail.receivedDate());
-			session.commit();
+			Issue issue = issueRepository.mustGet(issueId);
 			LOGGER.accept("Issue: " + issue);
+			issue.notify(Issue.Status.REPORTED, mailSource, mail.receivedDate());
 			issue.history().stream().forEach(item -> {
 				LOGGER.accept("< " + item);
 				LOGGER.accept(sourceParser.serialize(item.source()));
 			});
+			issueRepository.update(issueId, issue);
 		}
 
 		String x;
@@ -195,7 +188,7 @@ public class Main {
 		};
 	}
 
-	private static <T> Repository.Sessionable<IssueId, Issue> createIssueRepository(//
+	private static <T> Repository.Updatable<IssueId, Issue> createIssueRepository(//
 			Path repositoryPath, //
 			Function<Source<?>, Source.Track> sourceTracker, //
 			Serializer<Source<?>, String> sourceSerializer, //
@@ -220,8 +213,7 @@ public class Main {
 			throw new RuntimeException("Cannot create issue repository directory: " + repositoryPath, cause);
 		}
 		Function<IssueId, Path> pathResolver = (id) -> {
-			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.dateTime()).replace('-',
-					File.separatorChar);
+			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.dateTime()).replace('-', File.separatorChar);
 			Path dayDirectory = repositoryPath.resolve(datePart);
 			try {
 				createDirectories(dayDirectory);
