@@ -22,6 +22,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import fr.vergne.condominium.Main.IssueId;
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.issue.Issue;
@@ -39,6 +40,7 @@ import fr.vergne.condominium.core.parser.yaml.SourceYamlSerializer;
 import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.MemoryRepository;
 import fr.vergne.condominium.core.repository.Repository;
+import fr.vergne.condominium.core.repository.Repository.Session;
 import fr.vergne.condominium.core.repository.RepositoryDiff;
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Action;
 import fr.vergne.condominium.core.repository.RepositoryDiff.ResourceDiff.Values;
@@ -81,7 +83,7 @@ public class Main {
 		Serializer<Source<?>, String> sourceSerializer = Serializer.createFromMap(Map.of(mailRepoSource, "mails"));
 		Serializer<Refiner<?, ?, ?>, String> refinerSerializer = Serializer.createFromMap(Map.of(mailRefiner, "id"));
 		RefinerIdSerializer refinerIdSerializer = createRefinerIdSerializer(mailRefiner);
-		Repository<IssueId, Issue> issueRepository = createIssueRepository(//
+		Repository.Sessionable<IssueId, Issue> issueRepository = createIssueRepository(//
 				issueRepositoryPath, sourceTracker::trackOf, //
 				sourceSerializer, refinerSerializer, refinerIdSerializer//
 		);
@@ -102,22 +104,21 @@ public class Main {
 			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
 			LOGGER.accept("Source:");
 			LOGGER.accept(sourceParser.serialize(mailSource));
-			if (issueRepository.stream().count() == 0) {
-				Issue issue = Issue.createEmpty("Panne de chauffage", mail.receivedDate());
-				issue.notify(Issue.Status.REPORTED, mailSource, mail.receivedDate());
-				IssueId issueId = issueRepository.add(issue);
-				LOGGER.accept("Added: " + issueId);
-			} else {
-				IssueId issueId = issueRepository.streamKeys().findFirst().get();
-				LOGGER.accept("Retrieving: " + issueId);
-				Issue issue = issueRepository.mustGet(issueId);
-				LOGGER.accept("Issue: " + issue);
-				issue.history().stream().forEach(item -> {
-					LOGGER.accept("< " + item);
-					LOGGER.accept(sourceParser.serialize(item.source()));
-				});
-				// TODO Update repository
-			}
+			Session<IssueId,Issue> session = issueRepository.createSession();
+			Repository<IssueId, Issue> sessionRepository = session.repository();
+			IssueId issueId = sessionRepository.streamKeys().findFirst().get();
+			LOGGER.accept("Retrieving: " + issueId);
+			Issue issue = sessionRepository.mustGet(issueId);
+			// TODO Update repository
+			issue.notify(Issue.Status.CONFIRMED, mailSource, mail.receivedDate());
+			session.rollback();
+			issue.notify(Issue.Status.REPORTED, mailSource, mail.receivedDate());
+			session.commit();
+			LOGGER.accept("Issue: " + issue);
+			issue.history().stream().forEach(item -> {
+				LOGGER.accept("< " + item);
+				LOGGER.accept(sourceParser.serialize(item.source()));
+			});
 		}
 
 		String x;
@@ -194,7 +195,7 @@ public class Main {
 		};
 	}
 
-	private static <T> Repository<IssueId, Issue> createIssueRepository(//
+	private static <T> Repository.Sessionable<IssueId, Issue> createIssueRepository(//
 			Path repositoryPath, //
 			Function<Source<?>, Source.Track> sourceTracker, //
 			Serializer<Source<?>, String> sourceSerializer, //
