@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -25,6 +26,7 @@ import java.util.stream.Stream;
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
 import fr.vergne.condominium.core.issue.Issue;
+import fr.vergne.condominium.core.issue.Issue.Status;
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Body;
@@ -35,7 +37,6 @@ import fr.vergne.condominium.core.parser.yaml.IssueYamlSerializer;
 import fr.vergne.condominium.core.parser.yaml.MailCleaningConfiguration;
 import fr.vergne.condominium.core.parser.yaml.PlotConfiguration;
 import fr.vergne.condominium.core.parser.yaml.ProfilesConfiguration;
-import fr.vergne.condominium.core.parser.yaml.SourceYamlSerializer;
 import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.MemoryRepository;
 import fr.vergne.condominium.core.repository.Repository;
@@ -92,26 +93,36 @@ public class Main {
 			// TODO Notify issue with email attachment
 			// TODO Notify issue with email section
 			LOGGER.accept("**********************");
-			Serializer<Source<?>, String> sourceParser = SourceYamlSerializer.create(sourceTracker::trackOf,
-					sourceSerializer, refinerSerializer, refinerIdSerializer);
-			MailId mailId = mailRepository.streamKeys().findFirst().orElseThrow();
+
+			int skip = 11;
+			MailId mailId = mailRepository.streamKeys().skip(skip).findFirst().orElseThrow();
 			Source<Mail> mailSource = mailRepoSource.refine(mailRefiner, mailId);
 			Mail mail = mailSource.resolve();
+			DateTimeFormatter dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+			LOGGER.accept("Date: " + dateFormatter.format(mail.receivedDate()));
+			LOGGER.accept("From: " + mail.sender());
+			LOGGER.accept("To: " + mail.receivers().toList());
 			LOGGER.accept("Subject: " + mail.subject());
 			LOGGER.accept("Body:");
 			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
-			LOGGER.accept("Source:");
-			LOGGER.accept(sourceParser.serialize(mailSource));
-			IssueId issueId = issueRepository.streamKeys().findFirst().get();
-			LOGGER.accept("Retrieving: " + issueId);
-			Issue issue = issueRepository.mustGet(issueId);
-			LOGGER.accept("Issue: " + issue);
-			issue.notify(Issue.Status.REPORTED, mailSource, mail.receivedDate());
-			issue.history().stream().forEach(item -> {
-				LOGGER.accept("< " + item);
-				LOGGER.accept(sourceParser.serialize(item.source()));
+
+			LOGGER.accept("Issues:");
+			issueRepository.streamResources().forEach(issue -> {
+				String dateTime = dateFormatter.format(issue.dateTime());
+				String title = issue.title();
+				long historySize = issue.history().stream().count();
+				LOGGER.accept("- (" + dateTime + ") " + title + " [" + historySize + "]");
 			});
-			issueRepository.update(issueId, issue);
+			LOGGER.accept("");
+
+			// TODO Create GUI
+			ZonedDateTime rootDateTime = ZonedDateTime.of(1999, 1, 1, 0, 0, 0, 0, ZoneId.systemDefault());
+			Issue issue = Issue.createEmpty("-", rootDateTime);
+			Stream.of(Status.values()).forEach(status -> issue.notify(status, mailSource, mail.receivedDate()));
+			issueRepository.key(issue).ifPresentOrElse(//
+					id -> issueRepository.update(id, issue), //
+					() -> issueRepository.add(issue)//
+			);
 		}
 
 		String x;
