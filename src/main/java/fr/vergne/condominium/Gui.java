@@ -61,6 +61,10 @@ public class Gui extends JFrame {
 
 		Path frameConfPath = Path.of("condoGuiConfig.ini");
 		Properties frameConf = new Properties();
+		String xConf = "x";
+		String yConf = "y";
+		String widthConf = "width";
+		String heightConf = "height";
 		if (Files.exists(frameConfPath)) {
 			try {
 				frameConf.load(Files.newBufferedReader(frameConfPath));
@@ -68,17 +72,17 @@ public class Gui extends JFrame {
 				throw new RuntimeException("Cannot read: " + frameConfPath, cause);
 			}
 			Rectangle bounds = getBounds();
-			applyPropertyIfPresent(frameConf, "x", x -> bounds.x = x);
-			applyPropertyIfPresent(frameConf, "y", y -> bounds.y = y);
-			applyPropertyIfPresent(frameConf, "width", width -> bounds.width = width);
-			applyPropertyIfPresent(frameConf, "height", height -> bounds.height = height);
+			applyPropertyIfPresent(frameConf, xConf, x -> bounds.x = x);
+			applyPropertyIfPresent(frameConf, yConf, y -> bounds.y = y);
+			applyPropertyIfPresent(frameConf, widthConf, width -> bounds.width = width);
+			applyPropertyIfPresent(frameConf, heightConf, height -> bounds.height = height);
 			setBounds(bounds);
 		}
 		addComponentListener(onBoundsUpdate(bounds -> {
-			frameConf.setProperty("x", "" + bounds.x);
-			frameConf.setProperty("y", "" + bounds.y);
-			frameConf.setProperty("width", "" + bounds.width);
-			frameConf.setProperty("height", "" + bounds.height);
+			frameConf.setProperty(xConf, "" + bounds.x);
+			frameConf.setProperty(yConf, "" + bounds.y);
+			frameConf.setProperty(widthConf, "" + bounds.width);
+			frameConf.setProperty(heightConf, "" + bounds.height);
 			try {
 				frameConf.store(Files.newBufferedWriter(frameConfPath), null);
 			} catch (IOException cause) {
