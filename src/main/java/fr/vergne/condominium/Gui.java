@@ -17,10 +17,13 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -33,7 +36,10 @@ import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 
+import fr.vergne.condominium.Main.MailId;
 import fr.vergne.condominium.core.issue.Issue;
+import fr.vergne.condominium.core.mail.Mail;
+import fr.vergne.condominium.core.repository.Repository;
 
 @SuppressWarnings("serial")
 public class Gui extends JFrame {
@@ -46,7 +52,22 @@ public class Gui extends JFrame {
 		setTitle("Condominium");
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-		FrameContext ctx = new FrameContext(new DialogController(this));
+		Properties[] globalConf = { null };
+		Supplier<Optional<Properties>> confSupplier = () -> {
+			return Optional.ofNullable(globalConf[0]);
+		};
+		Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier = () -> {
+			System.out.println("Request mails");
+			return confSupplier.get()//
+					.map(conf -> conf.getProperty("outFolder"))//
+					.map(outFolderConf -> {
+						System.out.println("Load mails from: " + outFolderConf);
+						Path outFolderPath = Paths.get(outFolderConf);
+						Path mailRepositoryPath = outFolderPath.resolve("mails");
+						return Main.createMailRepository(mailRepositoryPath);
+					});
+		};
+		FrameContext ctx = new FrameContext(new DialogController(this), mailRepositorySupplier);
 
 		// TODO Create settings menu
 		// TODO Configure mails repository path
@@ -89,6 +110,7 @@ public class Gui extends JFrame {
 				throw new RuntimeException("Cannot write: " + frameConfPath, cause);
 			}
 		}));
+		globalConf[0] = frameConf;
 	}
 
 	private static ComponentAdapter onBoundsUpdate(Consumer<Rectangle> boundsConsumer) {
@@ -268,15 +290,24 @@ public class Gui extends JFrame {
 		});
 
 		navigationBar.add(previousButton, BorderLayout.LINE_START);
-		navigationBar.add(createMailSummary(), BorderLayout.CENTER);
+		navigationBar.add(createMailSummary(ctx), BorderLayout.CENTER);
 		navigationBar.add(nextButton, BorderLayout.LINE_END);
 
 		return navigationBar;
 	}
 
-	private static JLabel createMailSummary() {
+	private static JLabel createMailSummary(FrameContext ctx) {
 		// TODO Display mail summary
-		JLabel mailSummary = new JLabel("(mail summary)", JLabel.CENTER);
+		JLabel mailSummary = new JLabel("", JLabel.CENTER) {
+			@Override
+			public String getText() {
+				Optional<Repository<MailId, Mail>> optional = ctx.mailRepositorySupplier.get();
+				return optional.map(repo -> {
+					Mail mail = repo.streamResources().findFirst().get();
+					return DateTimeFormatter.ISO_DATE_TIME.format(mail.receivedDate());
+				}).orElse("-");
+			}
+		};
 		return mailSummary;
 	}
 
@@ -290,9 +321,12 @@ public class Gui extends JFrame {
 	static class FrameContext {
 
 		private final DialogController dialogController;
+		private final Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier;
 
-		public FrameContext(DialogController dialogController) {
+		public FrameContext(DialogController dialogController,
+				Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier) {
 			this.dialogController = dialogController;
+			this.mailRepositorySupplier = mailRepositorySupplier;
 		}
 	}
 

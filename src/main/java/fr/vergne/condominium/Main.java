@@ -297,7 +297,7 @@ public class Main {
 		}
 	}
 
-	private static FileRepository<MailId, Mail> createMailRepository(Path repositoryPath) {
+	static FileRepository<MailId, Mail> createMailRepository(Path repositoryPath) {
 		Function<Mail, MailId> identifier = MailId::fromMail;
 
 		MBoxParser repositoryParser = new MBoxParser(LOGGER);
