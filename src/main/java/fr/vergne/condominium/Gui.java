@@ -19,6 +19,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
@@ -35,6 +39,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
+import javax.swing.SwingWorker;
 
 import fr.vergne.condominium.Main.MailId;
 import fr.vergne.condominium.core.issue.Issue;
@@ -268,44 +273,87 @@ public class Gui extends JFrame {
 
 		panel.setLayout(new BorderLayout());
 
-		panel.add(createMailNavigationBar(ctx), BorderLayout.PAGE_START);
+		Runnable mailDisplayUpdater = panel::repaint;
+		panel.add(createMailNavigationBar(ctx, mailDisplayUpdater), BorderLayout.PAGE_START);
 		panel.add(createMailArea(), BorderLayout.CENTER);
 
 		return panel;
 	}
 
-	private static JComponent createMailNavigationBar(FrameContext ctx) {
+	private static JComponent createMailNavigationBar(FrameContext ctx, Runnable mailDisplayUpdater) {
 		JPanel navigationBar = new JPanel();
 		navigationBar.setLayout(new BorderLayout());
 
+		// TODO Move loading and wrapper out
+		var wrapper = new Object() {
+			Optional<Repository<MailId, Mail>> repository = Optional.empty();
+			Optional<Integer> mailIndex = Optional.empty();
+			List<MailId> mailIds = Collections.emptyList();
+		};
+		Supplier<Optional<Mail>> mailSupplier = () -> {
+			if (wrapper.repository.isEmpty()) {
+				wrapper.repository = ctx.mailRepositorySupplier.get();
+				if (wrapper.repository.isPresent()) {
+					Repository<MailId, Mail> repo = wrapper.repository.get();
+					wrapper.mailIds = new LinkedList<>();// TODO ArrayList?
+					SwingWorker<Void, MailId> swingWorker = new SwingWorker<>() {
+
+						@Override
+						protected Void doInBackground() throws Exception {
+							repo.streamKeys()//
+									.takeWhile(id -> !isCancelled())//
+									.forEach(id -> publish(id));
+							return null;
+						}
+
+						@Override
+						protected void process(List<MailId> mailIds) {
+							wrapper.mailIds.addAll(mailIds);
+							mailDisplayUpdater.run();
+						}
+					};
+					swingWorker.execute();
+				}
+			}
+			return wrapper.repository//
+					.map(repo -> {
+						return wrapper.mailIndex//
+								.filter(index -> wrapper.mailIds.size() >= index + 1)//
+								.map(index -> wrapper.mailIds.get(index))//
+								.map(id -> repo.mustGet(id))//
+								.orElseGet(() -> {
+									wrapper.mailIndex = Optional.of(0);
+									return repo.streamResources().findFirst().get();
+								});
+					});
+		};
 		JButton previousButton = new JButton("<");
 		previousButton.addActionListener(event -> {
-			// TODO Go to previous mail
-			ctx.dialogController.showMessageDialog("Previous mail");
+			wrapper.mailIndex = wrapper.mailIndex.map(i -> i - 1);
+			mailDisplayUpdater.run();
+			// TODO Disable when 0
 		});
 		JButton nextButton = new JButton(">");
 		nextButton.addActionListener(event -> {
-			// TODO Go to next mail
-			ctx.dialogController.showMessageDialog("Next mail");
+			wrapper.mailIndex = wrapper.mailIndex.map(i -> i + 1);
+			mailDisplayUpdater.run();
+			// TODO Disable when max
 		});
 
 		navigationBar.add(previousButton, BorderLayout.LINE_START);
-		navigationBar.add(createMailSummary(ctx), BorderLayout.CENTER);
+		navigationBar.add(createMailSummary(mailSupplier), BorderLayout.CENTER);
 		navigationBar.add(nextButton, BorderLayout.LINE_END);
 
 		return navigationBar;
 	}
 
-	private static JLabel createMailSummary(FrameContext ctx) {
-		// TODO Display mail summary
+	private static JComponent createMailSummary(Supplier<Optional<Mail>> mailSupplier) {
+		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT);
 		JLabel mailSummary = new JLabel("", JLabel.CENTER) {
+
 			@Override
 			public String getText() {
-				Optional<Repository<MailId, Mail>> optional = ctx.mailRepositorySupplier.get();
-				return optional.map(repo -> {
-					Mail mail = repo.streamResources().findFirst().get();
-					return DateTimeFormatter.ISO_DATE_TIME.format(mail.receivedDate());
-				}).orElse("-");
+				return mailSupplier.get().map(Mail::receivedDate).map(dateTimeFormatter::format).orElse("-");
 			}
 		};
 		return mailSummary;
