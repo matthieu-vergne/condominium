@@ -104,7 +104,7 @@ public class Main {
 			LOGGER.accept("To: " + mail.receivers().toList());
 			LOGGER.accept("Subject: " + mail.subject());
 			LOGGER.accept("Body:");
-			LOGGER.accept(reduceToPlainOrHtmlBody(mail).text());
+			LOGGER.accept(getPlainOrHtmlBody(mail).text());
 
 			LOGGER.accept("Issues:");
 			issueRepository.streamResources().forEach(issue -> {
@@ -348,7 +348,7 @@ public class Main {
 				pathResolver, pathFinder);
 	}
 
-	private static Mail.Body.Textual reduceToPlainOrHtmlBody(Mail mail) {
+	public static Mail.Body.Textual getPlainOrHtmlBody(Mail mail) {
 		return (Mail.Body.Textual) Stream.of(mail.body())//
 				.flatMap(Main::flattenRecursively)//
 				.filter(body -> {
