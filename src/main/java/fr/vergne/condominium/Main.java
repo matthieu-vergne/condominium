@@ -167,7 +167,7 @@ public class Main {
 		}
 	}
 
-	private static RefinerIdSerializer createRefinerIdSerializer(
+	static RefinerIdSerializer createRefinerIdSerializer(
 			Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner) {
 		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
 		return new RefinerIdSerializer() {
@@ -199,7 +199,7 @@ public class Main {
 		};
 	}
 
-	private static <T> Repository.Updatable<IssueId, Issue> createIssueRepository(//
+	public static <T> Repository.Updatable<IssueId, Issue> createIssueRepository(//
 			Path repositoryPath, //
 			Function<Source<?>, Source.Track> sourceTracker, //
 			Serializer<Source<?>, String> sourceSerializer, //

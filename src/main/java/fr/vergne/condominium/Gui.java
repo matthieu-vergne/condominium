@@ -47,11 +47,17 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.border.LineBorder;
 
+import fr.vergne.condominium.Main.IssueId;
 import fr.vergne.condominium.Main.MailId;
 import fr.vergne.condominium.core.issue.Issue;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Address;
 import fr.vergne.condominium.core.repository.Repository;
+import fr.vergne.condominium.core.repository.Repository.Updatable;
+import fr.vergne.condominium.core.source.Source;
+import fr.vergne.condominium.core.source.Source.Refiner;
+import fr.vergne.condominium.core.util.RefinerIdSerializer;
+import fr.vergne.condominium.core.util.Serializer;
 
 @SuppressWarnings("serial")
 public class Gui extends JFrame {
@@ -69,7 +75,6 @@ public class Gui extends JFrame {
 			return Optional.ofNullable(globalConf[0]);
 		};
 		Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier = () -> {
-			System.out.println("Request mails");
 			return confSupplier.get()//
 					.map(conf -> conf.getProperty("outFolder"))//
 					.map(outFolderConf -> {
@@ -79,7 +84,37 @@ public class Gui extends JFrame {
 						return Main.createMailRepository(mailRepositoryPath);
 					});
 		};
-		FrameContext ctx = new FrameContext(new DialogController(this), mailRepositorySupplier, this);
+		Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier = () -> {
+			System.out.println("Request issues");
+			return mailRepositorySupplier.get().flatMap(mailRepo -> {
+				System.out.println("Has repo, can request issues");
+				return confSupplier.get()//
+						.map(conf -> conf.getProperty("outFolder"))//
+						.map(outFolderConf -> {
+							System.out.println("Load issues from: " + outFolderConf);
+							Path outFolderPath = Paths.get(outFolderConf);
+							Path issueRepositoryPath = outFolderPath.resolve("issues");
+							Source.Tracker sourceTracker = Source.Tracker.create(Source::create,
+									Source.Refiner::create);
+							Source<Repository<MailId, Mail>> mailRepoSource = sourceTracker.createSource(mailRepo);
+							Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner = sourceTracker
+									.createRefiner(Repository<MailId, Mail>::mustGet);
+
+							Serializer<Source<?>, String> sourceSerializer = Serializer
+									.createFromMap(Map.of(mailRepoSource, "mails"));
+							Serializer<Refiner<?, ?, ?>, String> refinerSerializer = Serializer
+									.createFromMap(Map.of(mailRefiner, "id"));
+							RefinerIdSerializer refinerIdSerializer = Main.createRefinerIdSerializer(mailRefiner);
+							Repository.Updatable<IssueId, Issue> issueRepository = Main.createIssueRepository(//
+									issueRepositoryPath, sourceTracker::trackOf, //
+									sourceSerializer, refinerSerializer, refinerIdSerializer//
+							);
+							return issueRepository;
+						});
+			});
+		};
+		FrameContext ctx = new FrameContext(this, new DialogController(this), mailRepositorySupplier,
+				issueRepositorySupplier);
 
 		// TODO Create settings menu
 		// TODO Configure mails repository path
@@ -165,14 +200,25 @@ public class Gui extends JFrame {
 		panel.setLayout(new BoxLayout(panel, BoxLayout.PAGE_AXIS));
 
 		// TODO Feed with actual issues
-		panel.add(createIssueRow(ctx));
-		panel.add(createIssueRow(ctx));
-		panel.add(createIssueRow(ctx));
+		ctx.addPropertyChangeListener(event -> {
+			if (event.getPropertyName().equals(CheckMailContext.MAIL_REPOSITORY)) {
+				Optional<Updatable<IssueId, Issue>> issueRepository = ctx.issueRepository();
+				issueRepository.ifPresent(repo -> {
+					repo.stream().forEach(entry -> {
+						IssueId issueId = entry.getKey();
+						Issue issue = entry.getValue();
+						String title = issue.title();
+						System.out.println(title);
+						panel.add(createIssueRow(ctx, issue));
+					});
+				});
+			}
+		});
 
 		return panel;
 	}
 
-	private static JComponent createIssueRow(CheckMailContext ctx) {
+	private static JComponent createIssueRow(CheckMailContext ctx, Issue issue) {
 		JPanel issueRow = new JPanel() {
 			// Trick to avoid the panel to grow in height as much as it can.
 			// Partially inspired from: https://stackoverflow.com/a/55345497
@@ -190,7 +236,7 @@ public class Gui extends JFrame {
 			constraints.gridy = 0;
 			constraints.fill = GridBagConstraints.HORIZONTAL;
 			constraints.weightx = 1;
-			issueRow.add(createIssueTitle(), constraints);
+			issueRow.add(createIssueTitle(issue.title()), constraints);
 		}
 
 		{
@@ -209,7 +255,7 @@ public class Gui extends JFrame {
 			for (Issue.Status status : Issue.Status.values()) {
 				constraints.gridx++;
 				StatusButtonConf conf = statusButtonConfs.get(status);
-				issueRow.add(createStatusButton(ctx, status, conf.title(), buttonInsets), constraints);
+				issueRow.add(createStatusButton(ctx, issue, status, conf.title(), buttonInsets), constraints);
 			}
 		}
 
@@ -249,21 +295,36 @@ public class Gui extends JFrame {
 		return issueRow;
 	}
 
-	private static JLabel createIssueTitle() {
-		return new JLabel("(issue title)");
+	private static JLabel createIssueTitle(String title) {
+		return new JLabel(title);
 	}
 
-	private static JToggleButton createStatusButton(CheckMailContext ctx, Issue.Status status, String title,
-			Insets buttonInsets) {
-		// TODO Show enabled if displayed mail is part of the issue history
+	private static JToggleButton createStatusButton(CheckMailContext ctx, Issue issue, Issue.Status status,
+			String title, Insets buttonInsets) {
 		// TODO Add displayed mail to issue when enabling the button
 		// TODO Remove displayed mail from issue when disabling the button
-		// TODO When enabling this button, disable the others
 		JToggleButton statusButton = new JToggleButton(title);
 		statusButton.setMargin(buttonInsets);
 		statusButton.addActionListener(event -> {
 			ctx.frameContext().dialogController().showMessageDialog(status);
 		});
+
+		ctx.addPropertyChangeListener(event -> {
+			if (event.getPropertyName().equals(CheckMailContext.MAIL_ID)) {
+				ctx.mail().ifPresent(mail -> {
+					issue.history().stream()//
+							.filter(item -> status.equals(item.status()))//
+							.map(Issue.History.Item::source)//
+							.filter(source -> mail.equals(source.resolve()))//
+							.findFirst().ifPresentOrElse(src -> {
+								statusButton.setSelected(true);
+							}, () -> {
+								statusButton.setSelected(false);
+							});
+				});
+			}
+		});
+
 		return statusButton;
 	}
 
@@ -337,7 +398,7 @@ public class Gui extends JFrame {
 				@SuppressWarnings("unchecked")
 				Optional<MailId> mailId = (Optional<MailId>) event.getNewValue();
 
-				mailId.flatMap(id -> ctx.repository()//
+				mailId.flatMap(id -> ctx.mailRepository()//
 						.map(repository -> repository.mustGet(id)))//
 						.ifPresentOrElse(mail -> {
 							String dateText = dateTimeFormatter.format(mail.receivedDate());
@@ -384,20 +445,36 @@ public class Gui extends JFrame {
 			support.removePropertyChangeListener(listener);
 		}
 
-		public static final String REPOSITORY = "repository";
-		private Optional<Repository<MailId, Mail>> repository = Optional.empty();
+		public static final String MAIL_REPOSITORY = "mailRepository";
+		private Optional<Repository<MailId, Mail>> mailRepository = Optional.empty();
 
-		public Optional<Repository<MailId, Mail>> repository() {
-			if (repository.isEmpty()) {
-				replaceRepository(frameContext.mailRepository());
+		public Optional<Repository<MailId, Mail>> mailRepository() {
+			if (mailRepository.isEmpty()) {
+				replaceMailRepository(frameContext.mailRepository());
 			}
-			return repository;
+			return mailRepository;
 		}
 
-		public void replaceRepository(Optional<Repository<MailId, Mail>> newRepository) {
-			Optional<Repository<MailId, Mail>> oldRepository = this.repository;
-			this.repository = newRepository;
-			support.firePropertyChange(REPOSITORY, oldRepository, newRepository);
+		public void replaceMailRepository(Optional<Repository<MailId, Mail>> newRepository) {
+			Optional<Repository<MailId, Mail>> oldRepository = this.mailRepository;
+			this.mailRepository = newRepository;
+			support.firePropertyChange(MAIL_REPOSITORY, oldRepository, newRepository);
+		}
+
+		public static final String ISSUE_REPOSITORY = "issueRepository";
+		private Optional<Repository.Updatable<IssueId, Issue>> issueRepository = Optional.empty();
+
+		public Optional<Repository.Updatable<IssueId, Issue>> issueRepository() {
+			if (issueRepository.isEmpty()) {
+				replaceIssueRepository(frameContext.issueRepository());
+			}
+			return issueRepository;
+		}
+
+		public void replaceIssueRepository(Optional<Repository.Updatable<IssueId, Issue>> newRepository) {
+			Optional<Repository.Updatable<IssueId, Issue>> oldRepository = this.issueRepository;
+			this.issueRepository = newRepository;
+			support.firePropertyChange(ISSUE_REPOSITORY, oldRepository, newRepository);
 		}
 
 		public static final String MAIL_ID_SET = "mailIdSet";
@@ -429,16 +506,16 @@ public class Gui extends JFrame {
 		}
 
 		public Optional<Mail> mail() {
-			return repository().flatMap(repo -> this.mailId.map(repo::mustGet));
+			return mailRepository().flatMap(repo -> this.mailId.map(repo::mustGet));
 		}
 
 		public static CheckMailContext init(FrameContext ctx) {
 			CheckMailContext checkMailCtx = new CheckMailContext(ctx);
 
-			// Upon repository change, initialize the set of IDs for easy browsing
+			// Upon mail repository change, initialize the set of IDs for easy browsing
 			checkMailCtx.addPropertyChangeListener(event -> {
 				// TODO Cancel & reload if repo is changed again
-				if (event.getPropertyName().equals(CheckMailContext.REPOSITORY)) {
+				if (event.getPropertyName().equals(CheckMailContext.MAIL_REPOSITORY)) {
 					@SuppressWarnings("unchecked")
 					Optional<Repository<MailId, Mail>> newRepo = (Optional<Repository<MailId, Mail>>) event
 							.getNewValue();
@@ -456,7 +533,7 @@ public class Gui extends JFrame {
 				@Override
 				public void windowOpened(WindowEvent event) {
 					SwingUtilities.invokeLater(() -> {
-						checkMailCtx.setMailId(checkMailCtx.repository().get().streamKeys().findFirst());
+						checkMailCtx.setMailId(checkMailCtx.mailRepository().get().streamKeys().findFirst());
 					});
 				}
 			});
@@ -486,14 +563,17 @@ public class Gui extends JFrame {
 
 	static class FrameContext {
 
+		private final JFrame frame;
 		private final DialogController dialogController;
 		private final Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier;
-		private final JFrame frame;
+		private final Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier;
 
-		public FrameContext(DialogController dialogController,
-				Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier, JFrame frame) {
+		public FrameContext(JFrame frame, DialogController dialogController,
+				Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier,
+				Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier) {
 			this.dialogController = dialogController;
 			this.mailRepositorySupplier = mailRepositorySupplier;
+			this.issueRepositorySupplier = issueRepositorySupplier;
 			this.frame = frame;
 		}
 
@@ -503,6 +583,10 @@ public class Gui extends JFrame {
 
 		public Optional<Repository<MailId, Mail>> mailRepository() {
 			return mailRepositorySupplier.get();
+		}
+
+		public Optional<Repository.Updatable<IssueId, Issue>> issueRepository() {
+			return issueRepositorySupplier.get();
 		}
 	}
 
