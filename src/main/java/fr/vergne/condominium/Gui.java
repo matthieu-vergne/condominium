@@ -296,6 +296,7 @@ public class Gui extends JFrame {
 			}
 			Map<Issue.Status, StatusButtonConf> statusButtonConfs = Map.of(//
 					Issue.Status.INFO, new StatusButtonConf("ⓘ"), // 🛈ⓘ
+					Issue.Status.RENEW, new StatusButtonConf("⟳"), // ⟳
 					Issue.Status.REPORTED, new StatusButtonConf("📣"), // ⚡✋👀👁📢📣🚨🕬
 					Issue.Status.REJECTED, new StatusButtonConf("👎"), // 👎
 					Issue.Status.CONFIRMED, new StatusButtonConf("👍"), // ✍👍👌

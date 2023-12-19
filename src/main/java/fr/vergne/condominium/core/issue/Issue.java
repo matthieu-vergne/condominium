@@ -67,7 +67,7 @@ public interface Issue {
 	}
 
 	public enum Status {
-		INFO, REPORTED, REJECTED, CONFIRMED, RESOLVING, RESOLVED
+		INFO, RENEW, REPORTED, REJECTED, CONFIRMED, RESOLVING, RESOLVED
 	}
 
 	public interface History {
