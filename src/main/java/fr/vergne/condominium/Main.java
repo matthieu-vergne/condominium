@@ -82,10 +82,10 @@ public class Main {
 		Serializer<Source<?>, String> sourceSerializer = Serializer.createFromMap(Map.of(mailRepoSource, "mails"));
 		Serializer<Refiner<?, ?, ?>, String> refinerSerializer = Serializer.createFromMap(Map.of(mailRefiner, "id"));
 		RefinerIdSerializer refinerIdSerializer = createRefinerIdSerializer(mailRefiner);
-		Repository.Updatable<IssueId, Issue> issueRepository = createIssueRepository(//
-				issueRepositoryPath, sourceTracker::trackOf, //
-				sourceSerializer, refinerSerializer, refinerIdSerializer//
-		);
+		Serializer<Issue, String> issueSerializer = IssueYamlSerializer.create(sourceTracker::trackOf, sourceSerializer,
+				refinerSerializer, refinerIdSerializer);
+		Repository.Updatable<IssueId, Issue> issueRepository = createIssueRepository(issueRepositoryPath,
+				issueSerializer);
 		LOGGER.accept("=================");
 		List<Mail> mails = mailRepository.streamResources().toList();
 		{
@@ -118,7 +118,7 @@ public class Main {
 			// TODO Create GUI
 			ZonedDateTime rootDateTime = ZonedDateTime.of(1999, 1, 1, 0, 0, 0, 0, ZoneId.systemDefault());
 			Issue issue = Issue.createEmpty("-", rootDateTime);
-			Stream.of(Status.values()).forEach(status -> issue.notify(status, mailSource, mail.receivedDate()));
+			Stream.of(Status.values()).forEach(status -> issue.notify(status, mail.receivedDate(), mailSource));
 			issueRepository.key(issue).ifPresentOrElse(//
 					id -> issueRepository.update(id, issue), //
 					() -> issueRepository.add(issue)//
@@ -199,22 +199,15 @@ public class Main {
 		};
 	}
 
-	public static <T> Repository.Updatable<IssueId, Issue> createIssueRepository(//
-			Path repositoryPath, //
-			Function<Source<?>, Source.Track> sourceTracker, //
-			Serializer<Source<?>, String> sourceSerializer, //
-			Serializer<Refiner<?, ?, ?>, String> refinerSerializer, //
-			RefinerIdSerializer refinerIdSerializer//
-	) {
+	public static Repository.Updatable<IssueId, Issue> createIssueRepository(Path repositoryPath,
+			Serializer<Issue, String> issueSerializer) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue.dateTime());
 
-		Serializer<Issue, String> issueYamlSerializer = IssueYamlSerializer.create(sourceTracker, sourceSerializer,
-				refinerSerializer, refinerIdSerializer);
 		Function<Issue, byte[]> resourceSerializer = issue -> {
-			return issueYamlSerializer.serialize(issue).getBytes();
+			return issueSerializer.serialize(issue).getBytes();
 		};
 		Function<Supplier<byte[]>, Issue> resourceDeserializer = bytes -> {
-			return issueYamlSerializer.deserialize(new String(bytes.get()));
+			return issueSerializer.deserialize(new String(bytes.get()));
 		};
 
 		String extension = ".issue";

@@ -91,6 +91,10 @@ public interface Source<T> {
 	public static interface Track {
 		Root root();
 
+		public static interface Refined<U> extends Track {
+			U refinedId();
+		}
+
 		public interface Root extends Transitive {
 			Source<?> source();
 		}
@@ -134,9 +138,9 @@ public interface Source<T> {
 		}
 
 		// TODO Test, surely won't work with 2 calls or more
-		default <T, U, V> Track then(Refiner<T, U, V> refiner, U id) {
+		default <T, U, V> Track.Refined<U> then(Refiner<T, U, V> refiner, U id) {
 			Track parent = this;
-			return new Track() {
+			return new Track.Refined<U>() {
 
 				@Override
 				public Root root() {
@@ -178,6 +182,11 @@ public interface Source<T> {
 							};
 						}
 					};
+				}
+
+				@Override
+				public U refinedId() {
+					return id;
 				}
 			};
 		}

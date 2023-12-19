@@ -15,9 +15,13 @@ public interface Issue {
 
 	ZonedDateTime dateTime();
 
-	void notify(Status reported, Source<?> source, ZonedDateTime dateTime);
+	void notify(Status status, ZonedDateTime dateTime, Source<?> source);
+
+	void denotify(Status status, ZonedDateTime dateTime);
 
 	default Status currentStatus() {
+		// Status should not be CONFIRMED if finally REJECTED
+		// TODO Do not rely on order anymore, maybe support finite state machine?
 		return history().stream()//
 				.map(History.Item::status)//
 				// TODO No need to go further if we find the max
@@ -48,14 +52,22 @@ public interface Issue {
 			}
 
 			@Override
-			public void notify(Status status, Source<?> source, ZonedDateTime dateTime) {
+			public void notify(Status status, ZonedDateTime dateTime, Source<?> source) {
 				history.add(new History.Item(dateTime, status, source));
+			}
+
+			@Override
+			public void denotify(Status status, ZonedDateTime dateTime) {
+				history.stream()//
+						.filter(item -> item.status().equals(status) && item.dateTime().equals(dateTime))//
+						.toList()// Store all in temporary list to not mess search with removal
+						.forEach(history::remove);
 			}
 		};
 	}
 
 	public enum Status {
-		REPORTED, CONFIRMED, RESOLVING, RESOLVED
+		INFO, REPORTED, REJECTED, CONFIRMED, RESOLVING, RESOLVED
 	}
 
 	public interface History {
@@ -63,6 +75,8 @@ public interface Issue {
 		Stream<Item> stream();
 
 		void add(Item item);
+
+		boolean remove(Item item);
 
 		public static record Item(ZonedDateTime dateTime, Status status, Source<?> source) {
 		}
@@ -79,6 +93,11 @@ public interface Issue {
 				@Override
 				public void add(Item item) {
 					items.add(item);
+				}
+
+				@Override
+				public boolean remove(Item item) {
+					return items.remove(item);
 				}
 			};
 		}
