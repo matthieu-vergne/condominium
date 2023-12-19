@@ -11,6 +11,8 @@ public interface Issue {
 
 	String title();
 
+	void setTitle(String newTitle);
+
 	History history();
 
 	ZonedDateTime dateTime();
@@ -36,9 +38,16 @@ public interface Issue {
 	public static Issue create(String issueTitle, ZonedDateTime dateTime, History history) {
 		return new Issue() {
 
+			String title = issueTitle;
+
 			@Override
 			public String title() {
-				return issueTitle;
+				return title;
+			}
+
+			@Override
+			public void setTitle(String newTitle) {
+				this.title = newTitle;
 			}
 
 			@Override

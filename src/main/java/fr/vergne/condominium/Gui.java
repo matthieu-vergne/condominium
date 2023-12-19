@@ -3,6 +3,7 @@ package fr.vergne.condominium;
 import static java.util.Comparator.comparing;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
@@ -13,6 +14,8 @@ import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
@@ -352,8 +355,7 @@ public class Gui extends JFrame {
 			constraints.gridy = 0;
 			constraints.fill = GridBagConstraints.HORIZONTAL;
 			constraints.weightx = 1;
-			// TODO Make so we can rename issue
-			issueRow.add(createIssueTitle(issue.title()), constraints);
+			issueRow.add(createIssueTitle(ctx, issueId, issue), constraints);
 		}
 
 		{
@@ -415,8 +417,56 @@ public class Gui extends JFrame {
 		return issueRow;
 	}
 
-	private static JLabel createIssueTitle(String title) {
-		return new JLabel(title);
+	private static JComponent createIssueTitle(CheckMailContext ctx, IssueId issueId, Issue issue) {
+		JPanel panel = new JPanel();
+		CardLayout cardLayout = new CardLayout();
+		panel.setLayout(cardLayout);
+
+		String title = issue.title();
+		JLabel immutableTitle = new JLabel(title);
+		JTextField mutableTitle = new JTextField(title);
+
+		panel.add(immutableTitle);// Start immutable
+		panel.add(mutableTitle);
+
+		// Switch to mutable upon double-click
+		immutableTitle.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mouseClicked(MouseEvent event) {
+				if (event.getClickCount() >= 2) {
+					cardLayout.next(panel);
+					mutableTitle.grabFocus();
+				}
+			}
+		});
+		mutableTitle.addKeyListener(new KeyAdapter() {
+			@Override
+			public void keyReleased(KeyEvent event) {
+				// Update and switch back to immutable upon ENTER
+				if (event.getKeyCode() == KeyEvent.VK_ENTER) {
+					String newTitle = mutableTitle.getText();
+					if (title.equals(newTitle)) {
+						// Nothing has changed, ignore
+					} else {
+						ctx.issueRepository().ifPresentOrElse(issueRepo -> {
+							immutableTitle.setText(newTitle);
+							issue.setTitle(newTitle);
+							issueRepo.update(issueId, issue);
+							cardLayout.next(panel);
+						}, () -> {
+							throw new IllegalStateException("No issue repository, cannot change title");
+						});
+					}
+				}
+				// Ignore and switch back to immutable upon ESCAPE
+				else if (event.getKeyCode() == KeyEvent.VK_ESCAPE) {
+					mutableTitle.setText(immutableTitle.getText());
+					cardLayout.next(panel);
+				}
+			}
+		});
+
+		return panel;
 	}
 
 	private static JToggleButton createStatusButton(CheckMailContext ctx, IssueId issueId, Issue issue,
