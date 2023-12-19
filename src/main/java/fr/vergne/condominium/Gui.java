@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.Comparator;
@@ -32,6 +33,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -46,10 +48,13 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.border.LineBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 import fr.vergne.condominium.Main.IssueId;
 import fr.vergne.condominium.Main.MailId;
@@ -58,7 +63,6 @@ import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Address;
 import fr.vergne.condominium.core.parser.yaml.IssueYamlSerializer;
 import fr.vergne.condominium.core.repository.Repository;
-import fr.vergne.condominium.core.repository.Repository.Updatable;
 import fr.vergne.condominium.core.source.Source;
 import fr.vergne.condominium.core.source.Source.Refiner;
 import fr.vergne.condominium.core.source.Source.Track;
@@ -241,32 +245,93 @@ public class Gui extends JFrame {
 		JPanel panel = new JPanel();
 		panel.setLayout(new GridLayout(1, 0));
 		panel.add(createMailDisplay(ctx));
-		panel.add(new JScrollPane(createIssuesArea(ctx), JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
-				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
+		panel.add(createIssuesArea(ctx));
 
 		return panel;
 	}
 
 	private static JComponent createIssuesArea(CheckMailContext ctx) {
-		// TODO Make so we can add new issue
+		JPanel listPanel = new JPanel();
+		BiConsumer<IssueId, Issue> issueRowAdder;
+		{
+			issueRowAdder = (issueId, issue) -> {
+				// TODO Use row sorter
+				listPanel.add(createIssueRow(ctx, issueId, issue));
+			};
+			listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.PAGE_AXIS));
+			ctx.addPropertyChangeListener(event -> {
+				if (event.getPropertyName().equals(CheckMailContext.MAIL_REPOSITORY)) {
+					ctx.issueRepository().ifPresent(issueRepo -> {
+						listPanel.removeAll();
+						issueRepo.stream().forEach(entry -> {
+							issueRowAdder.accept(entry.getKey(), entry.getValue());
+						});
+						listPanel.revalidate();
+					});
+				}
+			});
+		}
+
+		JPanel addPanel = new JPanel();
+		{
+			JTextField newIssueTitle = new JTextField();
+			JButton newIssueButton = new JButton("+");
+
+			newIssueButton.setEnabled(false);
+			newIssueTitle.getDocument().addDocumentListener(onAnyUpdate(event -> {
+				newIssueButton.setEnabled(!newIssueTitle.getText().isBlank() && ctx.issueRepository().isPresent());
+			}));
+
+			newIssueButton.addActionListener(event -> {
+				String issueTitle = newIssueTitle.getText();
+				if (issueTitle.isBlank()) {
+					throw new IllegalStateException("No issue title, button should be disabled");
+				}
+				ctx.issueRepository().ifPresentOrElse(issueRepo -> {
+					Issue issue = Issue.createEmpty(issueTitle, ZonedDateTime.now());
+					IssueId issueId = issueRepo.add(issue);
+					issueRowAdder.accept(issueId, issue);
+					listPanel.revalidate();
+				}, () -> {
+					throw new IllegalStateException("No issue repository, button should be disabled");
+				});
+			});
+
+			addPanel.setLayout(new BorderLayout());
+			addPanel.add(newIssueTitle, BorderLayout.CENTER);
+			addPanel.add(newIssueButton, BorderLayout.LINE_END);
+		}
 
 		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.PAGE_AXIS));
-
-		// TODO Feed with actual issues
-		ctx.addPropertyChangeListener(event -> {
-			if (event.getPropertyName().equals(CheckMailContext.MAIL_REPOSITORY)) {
-				Optional<Updatable<IssueId, Issue>> issueRepository = ctx.issueRepository();
-				issueRepository.ifPresent(repo -> {
-					repo.stream().forEach(entry -> {
-						// TODO Set row sorter
-						panel.add(createIssueRow(ctx, entry.getKey(), entry.getValue()));
-					});
-				});
-			}
-		});
+		panel.setLayout(new BorderLayout());
+		panel.add(new JScrollPane(listPanel, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
+				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), BorderLayout.CENTER);
+		panel.add(addPanel, BorderLayout.PAGE_END);
 
 		return panel;
+	}
+
+	private static DocumentListener onAnyUpdate(Consumer<DocumentEvent> updater) {
+		return new DocumentListener() {
+			@Override
+			public void insertUpdate(DocumentEvent event) {
+				updateButton(event);
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent event) {
+				updateButton(event);
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent event) {
+				updateButton(event);
+			}
+
+			private void updateButton(DocumentEvent event) {
+				updater.accept(event);
+			}
+		};
 	}
 
 	private static JComponent createIssueRow(CheckMailContext ctx, IssueId issueId, Issue issue) {
@@ -357,7 +422,6 @@ public class Gui extends JFrame {
 	private static JToggleButton createStatusButton(CheckMailContext ctx, IssueId issueId, Issue issue,
 			Issue.Status status, String title, Insets buttonInsets) {
 		JToggleButton statusButton = new JToggleButton(title);
-		statusButton.setEnabled(false);
 		statusButton.setMargin(buttonInsets);
 		statusButton.addActionListener(event -> {
 			ctx.mailId().ifPresent(mailId -> {
@@ -380,6 +444,7 @@ public class Gui extends JFrame {
 			});
 		});
 
+		statusButton.setEnabled(ctx.mail().isPresent());
 		ctx.addPropertyChangeListener(event -> {
 			if (event.getPropertyName().equals(CheckMailContext.MAIL_ID)) {
 				ctx.mail().ifPresentOrElse(mail -> {
