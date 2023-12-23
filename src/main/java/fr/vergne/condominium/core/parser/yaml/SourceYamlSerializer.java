@@ -21,7 +21,6 @@ import org.yaml.snakeyaml.nodes.Tag;
 import org.yaml.snakeyaml.representer.Represent;
 import org.yaml.snakeyaml.representer.Representer;
 
-import fr.vergne.condominium.core.issue.Issue;
 import fr.vergne.condominium.core.source.Source;
 import fr.vergne.condominium.core.source.Source.Refiner;
 import fr.vergne.condominium.core.util.RefinerIdSerializer;
@@ -63,7 +62,7 @@ public interface SourceYamlSerializer {
 		};
 
 		LoaderOptions loaderOptions = new LoaderOptions();
-		Constructor constructor = new Constructor(Issue.class, loaderOptions) {
+		Constructor constructor = new Constructor(Source.class, loaderOptions) {
 			{
 				Function<ScalarNode, String> scalarFactory = node -> {
 					return constructScalar(node);

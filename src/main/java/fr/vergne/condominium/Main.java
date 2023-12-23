@@ -25,13 +25,15 @@ import java.util.stream.Stream;
 
 import fr.vergne.condominium.core.diagram.Diagram;
 import fr.vergne.condominium.core.history.MailHistory;
-import fr.vergne.condominium.core.issue.Issue;
-import fr.vergne.condominium.core.issue.Issue.Status;
 import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Body;
 import fr.vergne.condominium.core.mail.MimeType;
 import fr.vergne.condominium.core.mail.SoftReferencedMail;
+import fr.vergne.condominium.core.monitorable.Issue;
+import fr.vergne.condominium.core.monitorable.Issue.State;
+import fr.vergne.condominium.core.monitorable.Monitorable.History;
+import fr.vergne.condominium.core.monitorable.Question;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser;
 import fr.vergne.condominium.core.parser.yaml.IssueYamlSerializer;
 import fr.vergne.condominium.core.parser.yaml.MailCleaningConfiguration;
@@ -117,8 +119,8 @@ public class Main {
 
 			// TODO Create GUI
 			ZonedDateTime rootDateTime = ZonedDateTime.of(1999, 1, 1, 0, 0, 0, 0, ZoneId.systemDefault());
-			Issue issue = Issue.createEmpty("-", rootDateTime);
-			Stream.of(Status.values()).forEach(status -> issue.notify(status, mail.receivedDate(), mailSource));
+			Issue issue = Issue.create("-", rootDateTime, History.createEmpty());
+			Stream.of(State.values()).forEach(status -> issue.notify(status, mail.receivedDate(), mailSource));
 			issueRepository.key(issue).ifPresentOrElse(//
 					id -> issueRepository.update(id, issue), //
 					() -> issueRepository.add(issue)//
@@ -244,6 +246,51 @@ public class Main {
 		);
 	}
 
+	public static Repository.Updatable<QuestionId, Question> createQuestionRepository(Path repositoryPath,
+			Serializer<Question, String> questionSerializer) {
+		Function<Question, QuestionId> identifier = question -> new QuestionId(question.dateTime());
+
+		Function<Question, byte[]> resourceSerializer = question -> {
+			return questionSerializer.serialize(question).getBytes();
+		};
+		Function<Supplier<byte[]>, Question> resourceDeserializer = bytes -> {
+			return questionSerializer.deserialize(new String(bytes.get()));
+		};
+
+		String extension = ".question";
+		try {
+			createDirectories(repositoryPath);
+		} catch (IOException cause) {
+			throw new RuntimeException("Cannot create question repository directory: " + repositoryPath, cause);
+		}
+		Function<QuestionId, Path> pathResolver = (id) -> {
+			String datePart = DateTimeFormatter.ISO_LOCAL_DATE.format(id.dateTime()).replace('-', File.separatorChar);
+			Path dayDirectory = repositoryPath.resolve(datePart);
+			try {
+				createDirectories(dayDirectory);
+			} catch (IOException cause) {
+				throw new RuntimeException("Cannot create question directory: " + dayDirectory, cause);
+			}
+
+			String timePart = DateTimeFormatter.ISO_LOCAL_TIME.format(id.dateTime()).replace(':', '-');
+			return dayDirectory.resolve(timePart + extension);
+		};
+		Supplier<Stream<Path>> pathFinder = () -> {
+			try {
+				return find(repositoryPath, Integer.MAX_VALUE, (path, attr) -> {
+					return path.toString().endsWith(extension) && isRegularFile(path);
+				}).sorted(Comparator.<Path>naturalOrder());// TODO Give real-time control over sort
+			} catch (IOException cause) {
+				throw new RuntimeException("Cannot browse " + repositoryPath, cause);
+			}
+		};
+		return FileRepository.overBytes(//
+				identifier, //
+				resourceSerializer, resourceDeserializer, //
+				pathResolver, pathFinder//
+		);
+	}
+
 	private static void updateMailsExceptRemovals(Repository<MailId, Mail> mboxRepository,
 			Repository<MailId, Mail> mailRepository) {
 		RepositoryDiff.of(mailRepository, mboxRepository)//
@@ -282,6 +329,9 @@ public class Main {
 	}
 
 	record IssueId(ZonedDateTime dateTime) {
+	}
+
+	record QuestionId(ZonedDateTime dateTime) {
 	}
 
 	record MailId(ZonedDateTime datetime, String sender) {
