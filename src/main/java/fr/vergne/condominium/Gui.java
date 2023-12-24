@@ -47,8 +47,10 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
@@ -106,8 +108,8 @@ public class Gui extends JFrame {
 						return Main.createMailRepository(mailRepositoryPath);
 					});
 		});
-		record Context(Serializer<Issue, String> issueSerializer, Serializer<Question, String> questionSerializer, Function<MailId, Source<Mail>> mailTracker,
-				Function<Source<Mail>, MailId> mailUntracker) {
+		record Context(Serializer<Issue, String> issueSerializer, Serializer<Question, String> questionSerializer,
+				Function<MailId, Source<Mail>> mailTracker, Function<Source<Mail>, MailId> mailUntracker) {
 		}
 		Supplier<Optional<Context>> ctxSupplier = cache(() -> {
 			return mailRepositorySupplier.get().flatMap(mailRepo -> {
@@ -270,7 +272,12 @@ public class Gui extends JFrame {
 	}
 
 	private static JComponent createCheckMailTab(CheckMailContext ctx) {
-		JTabbedPane tabsPane = new JTabbedPane(JTabbedPane.TOP);
+		JPanel panel = new JPanel();
+		panel.setLayout(new GridLayout(1, 0));
+		panel.add(createMailDisplay(ctx));
+		JTabbedPane monitorableTabs = new JTabbedPane(JTabbedPane.TOP);
+		panel.add(monitorableTabs);
+
 		{
 			Supplier<Optional<Repository.Updatable<IssueId, Issue>>> repoSupplier = ctx::issueRepository;
 			Monitorable.Factory<Issue, Issue.State> factory = Issue::create;
@@ -284,7 +291,7 @@ public class Gui extends JFrame {
 					Issue.State.RESOLVING, "🔨", // ⛏⚒🔨
 					Issue.State.RESOLVED, "✔"// ☑✅✓✔
 			);
-			tabsPane.add("Issues", createMonitorableArea(ctx, repoSupplier, factory, states, stateIcons));
+			monitorableTabs.add("Issues", createMonitorableArea(ctx, repoSupplier, factory, states, stateIcons));
 		}
 		{
 			Supplier<Optional<Repository.Updatable<QuestionId, Question>>> repoSupplier = ctx::questionRepository;
@@ -296,13 +303,8 @@ public class Gui extends JFrame {
 					Question.State.REQUEST, "?", // ⚡✋👀👁📢📣🚨🕬
 					Question.State.ANSWER, "✔"// ☑✅✓✔
 			);
-			tabsPane.add("Questions", createMonitorableArea(ctx, repoSupplier, factory, states, stateIcons));
+			monitorableTabs.add("Questions", createMonitorableArea(ctx, repoSupplier, factory, states, stateIcons));
 		}
-
-		JPanel panel = new JPanel();
-		panel.setLayout(new GridLayout(1, 0));
-		panel.add(createMailDisplay(ctx));
-		panel.add(tabsPane);
 
 		return panel;
 	}
@@ -417,7 +419,8 @@ public class Gui extends JFrame {
 			constraints.gridy = 0;
 			constraints.fill = GridBagConstraints.HORIZONTAL;
 			constraints.weightx = 1;
-			monitorableRow.add(createMonitorableTitle(monitorableId, monitorable, repositorySupplier), constraints);
+			monitorableRow.add(createMonitorableTitle(ctx, monitorableId, monitorable, repositorySupplier),
+					constraints);
 		}
 
 		{
@@ -429,22 +432,6 @@ public class Gui extends JFrame {
 				monitorableRow.add(createMonitorableStateButton(ctx, monitorableId, monitorable, state,
 						stateIcons.get(state), buttonInsets, repositorySupplier), constraints);
 			});
-		}
-
-		{
-			JButton detailsButton = new JButton("📋");
-			detailsButton.setMargin(buttonInsets);
-			detailsButton.addActionListener(event -> {
-				// TODO Create new tab in frame
-				ctx.frameContext().dialogController().showMessageDialog("Show monitorable details");
-			});
-
-			GridBagConstraints constraints = new GridBagConstraints();
-			// No gridx, placed after the previous one
-			constraints.gridy = 0;
-			constraints.fill = GridBagConstraints.NONE;
-			constraints.insets = new Insets(0, 5, 0, 0);
-			monitorableRow.add(detailsButton, constraints);
 		}
 
 		monitorableRow.setBorder(new LineBorder(monitorableRow.getBackground()));
@@ -468,8 +455,8 @@ public class Gui extends JFrame {
 		return monitorableRow;
 	}
 
-	private static <I, M extends Monitorable<?>> JComponent createMonitorableTitle(I monitorableId, M monitorable,
-			Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier) {
+	private static <I, M extends Monitorable<?>> JComponent createMonitorableTitle(CheckMailContext ctx,
+			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier) {
 		JPanel panel = new JPanel();
 		CardLayout cardLayout = new CardLayout();
 		panel.setLayout(cardLayout);
@@ -481,14 +468,45 @@ public class Gui extends JFrame {
 		panel.add(immutableTitle);// Start immutable
 		panel.add(mutableTitle);
 
+		JPopupMenu popupMenu;
+		{
+			JMenuItem renameItem = new JMenuItem("Rename");
+			renameItem.addActionListener(ev -> {
+				cardLayout.next(panel);
+				mutableTitle.grabFocus();
+			});
+
+			JMenuItem detailsItem = new JMenuItem("Details 📋");
+			detailsItem.addActionListener(ev -> {
+				// TODO Create new tab in frame
+				ctx.frameContext().dialogController().showMessageDialog("Show monitorable details");
+			});
+
+			popupMenu = new JPopupMenu();
+			popupMenu.add(detailsItem);
+			popupMenu.add(renameItem);
+		}
+
 		// Switch to mutable upon double-click
 		immutableTitle.addMouseListener(new MouseAdapter() {
 			@Override
-			public void mouseClicked(MouseEvent event) {
-				if (event.getClickCount() >= 2) {
-					cardLayout.next(panel);
-					mutableTitle.grabFocus();
+			public void mousePressed(MouseEvent event) {
+				// Popup triggers on mouse press for some OSs (cf. javadoc)
+				if (event.isPopupTrigger()) {
+					popup(popupMenu, event);
 				}
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent event) {
+				// Popup triggers on mouse release for some OSs (cf. javadoc)
+				if (event.isPopupTrigger()) {
+					popup(popupMenu, event);
+				}
+			}
+
+			private void popup(JPopupMenu popupMenu, MouseEvent event) {
+				popupMenu.show(event.getComponent(), event.getX(), event.getY());
 			}
 		});
 		mutableTitle.addKeyListener(new KeyAdapter() {
@@ -805,6 +823,7 @@ public class Gui extends JFrame {
 						public void run() {
 							checkMailCtx.mailRepository().ifPresentOrElse(mailRepo -> {
 								checkMailCtx.issueRepository().ifPresentOrElse(issueRepo -> {
+									System.out.println("Searching mail to display...");
 									// XXX Consider other monitorable repos (question, etc.)
 									Optional<MailId> lastMailIdNotified = issueRepo.streamResources()//
 											.map(Issue::history)//
@@ -819,6 +838,7 @@ public class Gui extends JFrame {
 
 									Optional<MailId> currentMailId = lastMailIdNotified
 											.or(() -> mailRepo.streamKeys().findFirst());
+									System.out.println("Set mail to display: " + currentMailId);
 
 									checkMailCtx.setMailId(currentMailId);
 								}, () -> {
