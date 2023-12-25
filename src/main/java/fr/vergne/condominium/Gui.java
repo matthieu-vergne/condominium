@@ -4,9 +4,11 @@ import static java.util.Comparator.comparing;
 
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
@@ -96,8 +98,7 @@ public class Gui extends JFrame {
 		Supplier<Optional<Properties>> confSupplier = () -> {
 			return Optional.ofNullable(globalConf[0]);
 		};
-		// TODO Sync the cache of each supplier: if the repo is reset, the others should
-		// be
+		// TODO Sync cache of each supplier: if repo is reset, others should be
 		Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier = cache(() -> {
 			return confSupplier.get()//
 					.map(conf -> conf.getProperty("outFolder"))//
@@ -282,7 +283,7 @@ public class Gui extends JFrame {
 			Supplier<Optional<Repository.Updatable<IssueId, Issue>>> repoSupplier = ctx::issueRepository;
 			Monitorable.Factory<Issue, Issue.State> factory = Issue::create;
 			List<Issue.State> states = Arrays.asList(Issue.State.values());
-			Map<Issue.State, String> stateIcons = Map.of(//
+			Map<Issue.State, String> issueStateIcons = Map.of(//
 					Issue.State.INFO, "ⓘ", // 🛈ⓘ
 					Issue.State.RENEW, "⟳", // ⟳
 					Issue.State.REPORTED, "📣", // ⚡✋👀👁📢📣🚨🕬
@@ -291,7 +292,7 @@ public class Gui extends JFrame {
 					Issue.State.RESOLVING, "🔨", // ⛏⚒🔨
 					Issue.State.RESOLVED, "✔"// ☑✅✓✔
 			);
-			monitorableTabs.add("Issues", createMonitorableArea(ctx, repoSupplier, factory, states, stateIcons));
+			monitorableTabs.add("Issues", createMonitorableArea(ctx, repoSupplier, factory, states, issueStateIcons));
 		}
 		{
 			Supplier<Optional<Repository.Updatable<QuestionId, Question>>> repoSupplier = ctx::questionRepository;
@@ -419,7 +420,7 @@ public class Gui extends JFrame {
 			constraints.gridy = 0;
 			constraints.fill = GridBagConstraints.HORIZONTAL;
 			constraints.weightx = 1;
-			monitorableRow.add(createMonitorableTitle(ctx, monitorableId, monitorable, repositorySupplier),
+			monitorableRow.add(createMonitorableTitle(ctx, monitorableId, monitorable, repositorySupplier, stateIcons),
 					constraints);
 		}
 
@@ -434,29 +435,27 @@ public class Gui extends JFrame {
 			});
 		}
 
-		monitorableRow.setBorder(new LineBorder(monitorableRow.getBackground()));
-		MouseAdapter mouseAdapter = new MouseAdapter() {
+		Color defaultColor = monitorableRow.getBackground();
+		monitorableRow.setBorder(new LineBorder(defaultColor));
+		monitorableRow.addMouseListener(new MouseAdapter() {
 
 			@Override
-			public void mouseEntered(MouseEvent e) {
-				monitorableRow.setBorder(new LineBorder(monitorableRow.getBackground().darker()));
+			public void mouseEntered(MouseEvent event) {
+				monitorableRow.setBorder(new LineBorder(defaultColor.darker()));
 			}
 
 			@Override
-			public void mouseExited(MouseEvent e) {
-				monitorableRow.setBorder(new LineBorder(monitorableRow.getBackground()));
+			public void mouseExited(MouseEvent event) {
+				monitorableRow.setBorder(new LineBorder(defaultColor));
 			}
-		};
-		monitorableRow.addMouseListener(mouseAdapter);
-		for (Component child : monitorableRow.getComponents()) {
-			child.addMouseListener(mouseAdapter);
-		}
+		});
 
 		return monitorableRow;
 	}
 
-	private static <I, M extends Monitorable<?>> JComponent createMonitorableTitle(CheckMailContext ctx,
-			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier) {
+	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableTitle(CheckMailContext ctx,
+			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier,
+			Map<S, String> stateIcons) {
 		JPanel panel = new JPanel();
 		CardLayout cardLayout = new CardLayout();
 		panel.setLayout(cardLayout);
@@ -476,10 +475,12 @@ public class Gui extends JFrame {
 				mutableTitle.grabFocus();
 			});
 
-			JMenuItem detailsItem = new JMenuItem("Details 📋");
+			JMenuItem detailsItem = new JMenuItem("Details");
 			detailsItem.addActionListener(ev -> {
-				// TODO Create new tab in frame
-				ctx.frameContext().dialogController().showMessageDialog("Show monitorable details");
+				String tabText = immutableTitle.getText();
+				JComponent component = createMonitorableDetails(ctx, monitorableId, monitorable, repositorySupplier,
+						stateIcons);
+				ctx.frameContext().addTabCloseable(tabText, component);
 			});
 
 			popupMenu = new JPopupMenu();
@@ -539,6 +540,111 @@ public class Gui extends JFrame {
 		});
 
 		return panel;
+	}
+
+	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableDetails(CheckMailContext ctx,
+			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier,
+			Map<S, String> stateIcons) {
+		JTextArea sourceArea = new JTextArea();
+		sourceArea.setEditable(false);
+		sourceArea.setLineWrap(true);
+		Consumer<Source<?>> sourceUpdater = source -> {
+			@SuppressWarnings("unchecked")
+			Source<Mail> mailSource = (Source<Mail>) source;
+			Mail.Body.Textual mailBody = Main.getPlainOrHtmlBody(mailSource.resolve());
+			sourceArea.setText(mailBody.text());
+			sourceArea.setCaretPosition(0);
+		};
+
+		JComponent monitorableArea = createMonitorableArea(ctx, monitorable, stateIcons, sourceUpdater);
+
+		JPanel panel = new JPanel();
+		panel.setLayout(new GridLayout(1, 2));
+		panel.add(monitorableArea);
+		panel.add(new JScrollPane(sourceArea, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
+				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
+
+		return panel;
+	}
+
+	private static <M extends Monitorable<S>, S> JComponent createMonitorableArea(CheckMailContext ctx, M monitorable,
+			Map<S, String> stateIcons, Consumer<Source<?>> sourceUpdater) {
+		JComponent monitorableArea;
+		monitorableArea = new JPanel();
+		monitorableArea.setLayout(new GridBagLayout());
+		GridBagConstraints constraints = new GridBagConstraints();
+		constraints.gridx = 0;
+		constraints.fill = GridBagConstraints.HORIZONTAL;
+		constraints.weightx = 1;
+		monitorableArea.add(new JLabel(monitorable.title()), constraints);
+		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+		monitorableArea.add(new JLabel(dateTimeFormatter.format(monitorable.dateTime())), constraints);
+		monitorableArea.add(new JLabel("History:"), constraints);
+		constraints.fill = GridBagConstraints.BOTH;
+		constraints.weighty = 1;
+		monitorableArea
+				.add(new JScrollPane(createHistoryArea(ctx, monitorable, dateTimeFormatter, stateIcons, sourceUpdater),
+						JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), constraints);
+		return monitorableArea;
+	}
+
+	private static <M extends Monitorable<S>, S> JPanel createHistoryArea(CheckMailContext ctx, M monitorable,
+			DateTimeFormatter dateTimeFormatter, Map<S, String> stateIcons, Consumer<Source<?>> sourceUpdater) {
+		JPanel historyArea;
+		historyArea = new JPanel();
+		historyArea.setLayout(new BoxLayout(historyArea, BoxLayout.PAGE_AXIS));
+		History<S> history = monitorable.history();
+		history.stream().sorted(comparing(History.Item::dateTime)).forEach(item -> {
+			JPanel historyRow = createHistoryRow(ctx, item, dateTimeFormatter, stateIcons);
+			historyRow.setBackground(null);
+			historyRow.addMouseListener(new MouseAdapter() {
+				@Override
+				public void mouseClicked(MouseEvent event) {
+					for (Component rows : historyArea.getComponents()) {
+						rows.setBackground(null);
+					}
+					historyRow.setBackground(Color.YELLOW);
+					sourceUpdater.accept(item.source());
+				}
+			});
+			historyArea.add(historyRow);
+		});
+		return historyArea;
+	}
+
+	private static <S> JPanel createHistoryRow(CheckMailContext ctx, History.Item<S> item,
+			DateTimeFormatter dateTimeFormatter, Map<S, String> stateIcons) {
+		JPanel historyRow = new JPanel() {
+			// Trick to avoid the panel to grow in height as much as it can.
+			// Partially inspired from: https://stackoverflow.com/a/55345497
+			@Override
+			public Dimension getMaximumSize() {
+				return new Dimension(super.getMaximumSize().width, super.getPreferredSize().height);
+			}
+		};
+		historyRow.setLayout(new FlowLayout(FlowLayout.LEADING));
+		historyRow.add(new JLabel(stateIcons.get(item.state())));
+		@SuppressWarnings("unchecked")
+		MailId mailId = ctx.untrackMail((Source<Mail>) item.source());
+		historyRow.add(new JLabel(dateTimeFormatter.format(mailId.datetime())));
+		historyRow.add(new JLabel("📧"));
+		historyRow.add(new JLabel(mailId.sender()));
+
+		Color defaultColor = historyRow.getBackground();
+		historyRow.setBorder(new LineBorder(defaultColor));
+		historyRow.addMouseListener(new MouseAdapter() {
+
+			@Override
+			public void mouseEntered(MouseEvent event) {
+				historyRow.setBorder(new LineBorder(defaultColor.darker()));
+			}
+
+			@Override
+			public void mouseExited(MouseEvent event) {
+				historyRow.setBorder(new LineBorder(defaultColor));
+			}
+		});
+		return historyRow;
 	}
 
 	private static <S, I, M extends Monitorable<S>> JToggleButton createMonitorableStateButton(CheckMailContext ctx,
@@ -921,6 +1027,27 @@ public class Gui extends JFrame {
 
 		public Optional<Repository.Updatable<QuestionId, Question>> questionRepository() {
 			return questionRepositorySupplier.get();
+		}
+
+		public void addTabCloseable(String tabText, JComponent component) {
+			JTabbedPane tabbedPane = (JTabbedPane) frame.getContentPane().getComponent(0);
+			tabbedPane.add(tabText, component);
+			int tabIndex = tabbedPane.indexOfTab(tabText);
+
+			JLabel tabTitle = new JLabel(tabText);
+
+			JButton tabClose = new JButton("x");
+			tabClose.setMargin(new Insets(0, 0, 0, 0));
+			tabClose.addActionListener(event -> tabbedPane.remove(tabIndex));
+
+			JPanel tabPanel = new JPanel(new BorderLayout(5, 0));
+			tabPanel.setOpaque(false);
+			tabPanel.add(tabTitle, BorderLayout.CENTER);
+			tabPanel.add(tabClose, BorderLayout.LINE_END);
+
+			tabbedPane.setTabComponentAt(tabIndex, tabPanel);
+
+			tabbedPane.setSelectedIndex(tabIndex);
 		}
 	}
 
