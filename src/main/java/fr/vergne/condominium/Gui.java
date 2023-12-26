@@ -2,6 +2,7 @@ package fr.vergne.condominium;
 
 import static java.util.Comparator.comparing;
 
+import java.awt.AWTEvent;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -14,12 +15,15 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Rectangle;
+import java.awt.Toolkit;
+import java.awt.event.AWTEventListener;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.beans.PropertyChangeListener;
@@ -436,19 +440,12 @@ public class Gui extends JFrame {
 		}
 
 		Color defaultColor = monitorableRow.getBackground();
-		monitorableRow.setBorder(new LineBorder(defaultColor));
-		monitorableRow.addMouseListener(new MouseAdapter() {
-
-			@Override
-			public void mouseEntered(MouseEvent event) {
-				monitorableRow.setBorder(new LineBorder(defaultColor.darker()));
-			}
-
-			@Override
-			public void mouseExited(MouseEvent event) {
-				monitorableRow.setBorder(new LineBorder(defaultColor));
-			}
-		});
+		LineBorder visibleBorder = new LineBorder(defaultColor.darker());
+		LineBorder invisibleBorder = new LineBorder(defaultColor);
+		monitorableRow.setBorder(invisibleBorder);
+		ctx.frameContext().addEnterLeaveActions(monitorableRow, //
+				() -> monitorableRow.setBorder(visibleBorder), //
+				() -> monitorableRow.setBorder(invisibleBorder));
 
 		return monitorableRow;
 	}
@@ -631,19 +628,13 @@ public class Gui extends JFrame {
 		historyRow.add(new JLabel(mailId.sender()));
 
 		Color defaultColor = historyRow.getBackground();
-		historyRow.setBorder(new LineBorder(defaultColor));
-		historyRow.addMouseListener(new MouseAdapter() {
+		LineBorder visibleBorder = new LineBorder(defaultColor.darker());
+		LineBorder invisibleBorder = new LineBorder(defaultColor);
+		historyRow.setBorder(invisibleBorder);
+		ctx.frameContext().addEnterLeaveActions(historyRow, //
+				() -> historyRow.setBorder(visibleBorder), //
+				() -> historyRow.setBorder(invisibleBorder));
 
-			@Override
-			public void mouseEntered(MouseEvent event) {
-				historyRow.setBorder(new LineBorder(defaultColor.darker()));
-			}
-
-			@Override
-			public void mouseExited(MouseEvent event) {
-				historyRow.setBorder(new LineBorder(defaultColor));
-			}
-		});
 		return historyRow;
 	}
 
@@ -1048,6 +1039,49 @@ public class Gui extends JFrame {
 			tabbedPane.setTabComponentAt(tabIndex, tabPanel);
 
 			tabbedPane.setSelectedIndex(tabIndex);
+		}
+
+		/**
+		 * Set a behavior to execute upon entering or leaving a target component.
+		 * <p>
+		 * Setting a {@link MouseListener#mouseEntered(MouseEvent)} is unfortunately
+		 * unreliable, since we might leave the component when entering one of its
+		 * children (and entering it again when leaving the children). This method takes
+		 * a more global perspective to reliably identify when we actually enter or
+		 * leave the component boundaries, independently of its children.
+		 * <p>
+		 * Source: <a href=
+		 * "https://stackoverflow.com/a/28729833">https://stackoverflow.com/a/28729833</a>
+		 * 
+		 * @param target      the component to monitor
+		 * @param enterAction the action to do upon entering the target boundaries
+		 * @param leaveAction the action to do upon leaving the target boundaries
+		 */
+		public void addEnterLeaveActions(JPanel target, Runnable enterAction, Runnable leaveAction) {
+			var wrapper = new Object() {
+				boolean isOver = false;
+			};
+			Toolkit.getDefaultToolkit().addAWTEventListener(new AWTEventListener() {
+				@Override
+				public void eventDispatched(AWTEvent event) {
+					Object source = event.getSource();
+					if (source instanceof JComponent) {
+						JComponent comp = (JComponent) source;
+						if (SwingUtilities.isDescendingFrom(comp, target)) {
+							if (!wrapper.isOver) {
+								enterAction.run();
+								wrapper.isOver = true;
+							}
+						} else {
+							if (wrapper.isOver) {
+								leaveAction.run();
+								wrapper.isOver = false;
+							}
+						}
+
+					}
+				}
+			}, AWTEvent.MOUSE_MOTION_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK);
 		}
 	}
 
