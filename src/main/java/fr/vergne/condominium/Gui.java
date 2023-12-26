@@ -1066,6 +1066,7 @@ public class Gui extends JFrame {
 			var wrapper = new Object() {
 				boolean isOver = false;
 			};
+			// TODO Remove listener upon target disposal
 			Toolkit.getDefaultToolkit().addAWTEventListener(new AWTEventListener() {
 				@Override
 				public void eventDispatched(AWTEvent event) {
