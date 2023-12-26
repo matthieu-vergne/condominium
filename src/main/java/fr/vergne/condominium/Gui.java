@@ -4,7 +4,6 @@ import static java.util.Comparator.comparing;
 
 import java.awt.AWTEvent;
 import java.awt.BorderLayout;
-import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
@@ -21,6 +20,7 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
@@ -86,6 +86,7 @@ import fr.vergne.condominium.core.source.Source.Refiner;
 import fr.vergne.condominium.core.source.Source.Track;
 import fr.vergne.condominium.core.util.RefinerIdSerializer;
 import fr.vergne.condominium.core.util.Serializer;
+import fr.vergne.condominium.gui.JMonitorableTitle;
 
 @SuppressWarnings("serial")
 public class Gui extends JFrame {
@@ -347,7 +348,7 @@ public class Gui extends JFrame {
 						.setEnabled(!newMonitorableTitle.getText().isBlank() && repositorySupplier.get().isPresent());
 			}));
 
-			newMonitorableButton.addActionListener(event -> {
+			Runnable monitorableCreator = () -> {
 				String monitorableTitle = newMonitorableTitle.getText();
 				if (monitorableTitle.isBlank()) {
 					throw new IllegalStateException("No title, button should be disabled");
@@ -359,10 +360,20 @@ public class Gui extends JFrame {
 					M monitorable = monitorableFactory.createMonitorable(monitorableTitle, dateTime, history);
 					I id = repo.add(monitorable);
 					rowAdder.accept(id, monitorable);
+					newMonitorableTitle.setText("");
 					listPanel.revalidate();
 				}, () -> {
 					throw new IllegalStateException("No repository, button should be disabled");
 				});
+			};
+			newMonitorableButton.addActionListener(event -> monitorableCreator.run());
+			newMonitorableTitle.addKeyListener(new KeyAdapter() {
+				@Override
+				public void keyReleased(KeyEvent event) {
+					if (event.getKeyCode() == KeyEvent.VK_ENTER && newMonitorableButton.isEnabled()) {
+						monitorableCreator.run();
+					}
+				}
 			});
 
 			addPanel.setLayout(new BorderLayout());
@@ -451,32 +462,24 @@ public class Gui extends JFrame {
 	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableTitle(CheckMailContext ctx,
 			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier,
 			Map<S, String> stateIcons) {
-		JPanel panel = new JPanel();
-		CardLayout cardLayout = new CardLayout();
-		panel.setLayout(cardLayout);
 
-		String title = monitorable.title();
-		JLabel immutableTitle = new JLabel(title);
-		JTextField mutableTitle = new JTextField(title);
+		JMonitorableTitle monitorableTitle = new JMonitorableTitle(repositorySupplier, monitorableId, monitorable);
 
-		panel.add(immutableTitle);// Start immutable
-		panel.add(mutableTitle);
+		Runnable detailsDisplayer = () -> {
+			JComponent component = createMonitorableDetails(ctx, monitorableId, monitorable, repositorySupplier,
+					stateIcons);
+			JLabel tabTitle = new JLabel(monitorable.title());
+			monitorable.observeTitle((oldTitle, newTitle) -> tabTitle.setText(newTitle));
+			ctx.frameContext().addTabCloseable(tabTitle, component);
+		};
 
 		JPopupMenu popupMenu;
 		{
 			JMenuItem renameItem = new JMenuItem("Rename");
-			renameItem.addActionListener(ev -> {
-				cardLayout.next(panel);
-				mutableTitle.grabFocus();
-			});
+			renameItem.addActionListener(ev -> monitorableTitle.edit());
 
 			JMenuItem detailsItem = new JMenuItem("Details");
-			detailsItem.addActionListener(ev -> {
-				String tabText = immutableTitle.getText();
-				JComponent component = createMonitorableDetails(ctx, monitorableId, monitorable, repositorySupplier,
-						stateIcons);
-				ctx.frameContext().addTabCloseable(tabText, component);
-			});
+			detailsItem.addActionListener(ev -> detailsDisplayer.run());
 
 			popupMenu = new JPopupMenu();
 			popupMenu.add(detailsItem);
@@ -484,7 +487,13 @@ public class Gui extends JFrame {
 		}
 
 		// Switch to mutable upon double-click
-		immutableTitle.addMouseListener(new MouseAdapter() {
+		monitorableTitle.addMouseListener(new MouseAdapter() {
+			public void mouseClicked(MouseEvent event) {
+				if (event.getButton() == MouseEvent.BUTTON1 && event.getClickCount() == 2) {
+					detailsDisplayer.run();
+				}
+			};
+
 			@Override
 			public void mousePressed(MouseEvent event) {
 				// Popup triggers on mouse press for some OSs (cf. javadoc)
@@ -505,36 +514,8 @@ public class Gui extends JFrame {
 				popupMenu.show(event.getComponent(), event.getX(), event.getY());
 			}
 		});
-		mutableTitle.addKeyListener(new KeyAdapter() {
-			@Override
-			public void keyReleased(KeyEvent event) {
-				// Update and switch back to immutable upon ENTER
-				if (event.getKeyCode() == KeyEvent.VK_ENTER) {
-					String oldTitle = immutableTitle.getText();
-					String newTitle = mutableTitle.getText();
-					if (oldTitle.equals(newTitle)) {
-						// Nothing has changed, just switch back
-						cardLayout.next(panel);
-					} else {
-						repositorySupplier.get().ifPresentOrElse(repo -> {
-							immutableTitle.setText(newTitle);
-							monitorable.setTitle(newTitle);
-							repo.update(monitorableId, monitorable);
-							cardLayout.next(panel);
-						}, () -> {
-							throw new IllegalStateException("No issue repository, cannot change title");
-						});
-					}
-				}
-				// Ignore and switch back to immutable upon ESCAPE
-				else if (event.getKeyCode() == KeyEvent.VK_ESCAPE) {
-					mutableTitle.setText(immutableTitle.getText());
-					cardLayout.next(panel);
-				}
-			}
-		});
 
-		return panel;
+		return monitorableTitle;
 	}
 
 	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableDetails(CheckMailContext ctx,
@@ -556,7 +537,8 @@ public class Gui extends JFrame {
 			sourcePanel.revalidate();
 		};
 
-		JComponent monitorableArea = createMonitorableArea(ctx, monitorable, stateIcons, sourceUpdater);
+		JComponent monitorableArea = createMonitorableArea2(ctx, repositorySupplier, monitorableId, monitorable,
+				stateIcons, sourceUpdater);
 
 		JPanel panel = new JPanel();
 		panel.setLayout(new GridLayout(1, 2));
@@ -567,8 +549,18 @@ public class Gui extends JFrame {
 		return panel;
 	}
 
-	private static <M extends Monitorable<S>, S> JComponent createMonitorableArea(CheckMailContext ctx, M monitorable,
+	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableArea2(CheckMailContext ctx,
+			Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier, I monitorableId, M monitorable,
 			Map<S, String> stateIcons, Consumer<Source<?>> sourceUpdater) {
+		JMonitorableTitle monitorableTitle = new JMonitorableTitle(repositorySupplier, monitorableId, monitorable);
+		monitorableTitle.addMouseListener(new MouseAdapter() {
+			public void mouseClicked(MouseEvent event) {
+				if (event.getButton() == MouseEvent.BUTTON1 && event.getClickCount() == 2) {
+					monitorableTitle.edit();
+				}
+			};
+		});
+
 		JComponent monitorableArea;
 		monitorableArea = new JPanel();
 		monitorableArea.setLayout(new GridBagLayout());
@@ -576,7 +568,7 @@ public class Gui extends JFrame {
 		constraints.gridx = 0;
 		constraints.fill = GridBagConstraints.HORIZONTAL;
 		constraints.weightx = 1;
-		monitorableArea.add(new JLabel(monitorable.title()), constraints);
+		monitorableArea.add(monitorableTitle, constraints);
 		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 		monitorableArea.add(new JLabel(dateTimeFormatter.format(monitorable.dateTime())), constraints);
 		monitorableArea.add(new JLabel("History:"), constraints);
@@ -1023,12 +1015,10 @@ public class Gui extends JFrame {
 			return questionRepositorySupplier.get();
 		}
 
-		public void addTabCloseable(String tabText, JComponent component) {
+		public void addTabCloseable(JComponent tabTitle, JComponent tabContent) {
 			JTabbedPane tabbedPane = (JTabbedPane) frame.getContentPane().getComponent(0);
-			tabbedPane.add(tabText, component);
-			int tabIndex = tabbedPane.indexOfTab(tabText);
-
-			JLabel tabTitle = new JLabel(tabText);
+			tabbedPane.add(tabContent);
+			int tabIndex = tabbedPane.getTabCount() - 1;
 
 			JButton tabClose = new JButton("x");
 			tabClose.setMargin(new Insets(0, 0, 0, 0));

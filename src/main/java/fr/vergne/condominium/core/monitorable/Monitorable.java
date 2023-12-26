@@ -6,12 +6,15 @@ import java.util.LinkedList;
 import java.util.stream.Stream;
 
 import fr.vergne.condominium.core.source.Source;
+import fr.vergne.condominium.core.util.Observer;
 
 public interface Monitorable<S> {
 
 	String title();
 
 	void setTitle(String newTitle);
+
+	void observeTitle(Observer<String> titleObserver);
 
 	History<S> history();
 
