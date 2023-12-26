@@ -1,6 +1,7 @@
 package fr.vergne.condominium;
 
 import static java.util.Comparator.comparing;
+import static java.util.stream.Collectors.joining;
 
 import java.awt.AWTEvent;
 import java.awt.BorderLayout;
@@ -20,7 +21,6 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.awt.event.KeyListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
@@ -684,11 +684,23 @@ public class Gui extends JFrame {
 
 	private static JComponent createMailDisplay(CheckMailContext ctx) {
 		JLabel mailDate = new JLabel("", JLabel.CENTER);
-		JLabel mailSender = new JLabel("", JLabel.CENTER);
+		JLabel mailSender = new JLabel("", JLabel.TRAILING);
+		JLabel mailReceivers = new JLabel("", JLabel.LEADING);
 		JPanel mailSummary = new JPanel();
-		mailSummary.setLayout(new GridLayout());
-		mailSummary.add(mailDate);
-		mailSummary.add(mailSender);
+		{
+			mailSummary.setLayout(new GridBagLayout());
+			GridBagConstraints constraints = new GridBagConstraints();
+			constraints.insets = new Insets(0, 5, 0, 5);
+			constraints.fill = GridBagConstraints.HORIZONTAL;
+			constraints.weightx = 0;
+			mailSummary.add(mailDate, constraints);
+			constraints.weightx = 1;
+			mailSummary.add(mailSender, constraints);
+			constraints.weightx = 0;
+			mailSummary.add(new JLabel("→", JLabel.CENTER), constraints);
+			constraints.weightx = 1;
+			mailSummary.add(mailReceivers, constraints);
+		}
 
 		JButton previousButton = new JButton("<");
 		JButton nextButton = new JButton(">");
@@ -747,6 +759,15 @@ public class Gui extends JFrame {
 
 		// Change the mail display from the mail ID
 		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT);
+		Function<Address, String> nameFormatter = address -> {
+			return address.name().orElseGet(address::email);
+		};
+		Function<Address, String> toolTipFormatter = address -> {
+			String email = address.email();
+			return address.name()//
+					.map(name -> name + " <" + email + ">")//
+					.orElse(email);
+		};
 		ctx.addPropertyChangeListener(event -> {
 			if (event.getPropertyName().equals(CheckMailContext.MAIL_ID)) {
 				@SuppressWarnings("unchecked")
@@ -759,9 +780,25 @@ public class Gui extends JFrame {
 							mailDate.setText(dateText);
 
 							Address address = mail.sender();
-							String email = address.email();
-							mailSender.setText(address.name().orElse(email));
-							mailSender.setToolTipText(email);
+							mailSender.setText(nameFormatter.apply(address));
+							mailSender.setToolTipText(toolTipFormatter.apply(address));
+
+							List<Address> receivers = mail.receivers().toList();
+							if (receivers.size() == 1) {
+								Address firstAddress = mail.receivers().findFirst().get();
+								mailReceivers.setText(nameFormatter.apply(firstAddress));
+								mailReceivers.setToolTipText(toolTipFormatter.apply(firstAddress));
+							} else {
+								Address firstAddress = mail.receivers().findFirst().get();
+								mailReceivers.setText(nameFormatter.apply(firstAddress) + " ...");
+								String allReceivers = "<html>" + receivers.stream()//
+										.map(toolTipFormatter)//
+										.map(text -> text.replace("<", "&lt;"))//
+										.map(text -> text.replace(">", "&gt;"))//
+										.collect(joining("<br>")) //
+										+ "</html>";
+								mailReceivers.setToolTipText(allReceivers);
+							}
 
 							String bodyText = Main.getPlainOrHtmlBody(mail).text();
 							mailArea.setText(bodyText);
@@ -770,6 +807,8 @@ public class Gui extends JFrame {
 							mailDate.setText("-");
 							mailSender.setText("-");
 							mailSender.setToolTipText(null);
+							mailReceivers.setText("-");
+							mailReceivers.setToolTipText(null);
 							mailArea.setText("<no mail displayed>");
 						});
 			}
