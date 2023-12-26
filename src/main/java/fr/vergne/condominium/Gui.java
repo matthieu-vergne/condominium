@@ -542,15 +542,20 @@ public class Gui extends JFrame {
 	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableDetails(CheckMailContext ctx,
 			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier,
 			Map<S, String> stateIcons) {
-		JTextArea sourceArea = new JTextArea();
-		sourceArea.setEditable(false);
-		sourceArea.setLineWrap(true);
+		JPanel sourcePanel = new JPanel(new GridLayout(1, 1));
 		Consumer<Source<?>> sourceUpdater = source -> {
 			@SuppressWarnings("unchecked")
 			Source<Mail> mailSource = (Source<Mail>) source;
 			Mail.Body.Textual mailBody = Main.getPlainOrHtmlBody(mailSource.resolve());
-			sourceArea.setText(mailBody.text());
-			sourceArea.setCaretPosition(0);
+			JTextArea mailArea = new JTextArea();
+			mailArea.setEditable(false);
+			mailArea.setLineWrap(true);
+			mailArea.setText(mailBody.text());
+			mailArea.setCaretPosition(0);
+
+			sourcePanel.removeAll();
+			sourcePanel.add(mailArea);
+			sourcePanel.revalidate();
 		};
 
 		JComponent monitorableArea = createMonitorableArea(ctx, monitorable, stateIcons, sourceUpdater);
@@ -558,7 +563,7 @@ public class Gui extends JFrame {
 		JPanel panel = new JPanel();
 		panel.setLayout(new GridLayout(1, 2));
 		panel.add(monitorableArea);
-		panel.add(new JScrollPane(sourceArea, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
+		panel.add(new JScrollPane(sourcePanel, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
 				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
 
 		return panel;
