@@ -201,8 +201,6 @@ public class Gui extends JFrame {
 				issueRepositorySupplier, questionRepositorySupplier, mailTracker, mailUntracker);
 
 		// TODO Create settings menu
-		// TODO Configure mails repository path
-		// TODO Configure issues repository path
 
 		Container contentPane = getContentPane();
 		JTabbedPane tabsPane = new JTabbedPane(JTabbedPane.TOP);
