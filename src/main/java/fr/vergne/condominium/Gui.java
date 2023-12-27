@@ -1,7 +1,6 @@
 package fr.vergne.condominium;
 
 import static java.util.Comparator.comparing;
-import static java.util.stream.Collectors.joining;
 
 import java.awt.AWTEvent;
 import java.awt.BorderLayout;
@@ -59,7 +58,6 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
-import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
@@ -72,7 +70,6 @@ import fr.vergne.condominium.Main.IssueId;
 import fr.vergne.condominium.Main.MailId;
 import fr.vergne.condominium.Main.QuestionId;
 import fr.vergne.condominium.core.mail.Mail;
-import fr.vergne.condominium.core.mail.Mail.Address;
 import fr.vergne.condominium.core.monitorable.Issue;
 import fr.vergne.condominium.core.monitorable.Monitorable;
 import fr.vergne.condominium.core.monitorable.Monitorable.History;
@@ -86,6 +83,7 @@ import fr.vergne.condominium.core.source.Source.Refiner;
 import fr.vergne.condominium.core.source.Source.Track;
 import fr.vergne.condominium.core.util.RefinerIdSerializer;
 import fr.vergne.condominium.core.util.Serializer;
+import fr.vergne.condominium.gui.JMailPanel;
 import fr.vergne.condominium.gui.JMonitorableTitle;
 
 @SuppressWarnings("serial")
@@ -198,8 +196,9 @@ public class Gui extends JFrame {
 				});
 			});
 		});
+		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT);
 		FrameContext ctx = new FrameContext(this, new DialogController(this), mailRepositorySupplier,
-				issueRepositorySupplier, questionRepositorySupplier, mailTracker, mailUntracker);
+				issueRepositorySupplier, questionRepositorySupplier, mailTracker, mailUntracker, dateTimeFormatter);
 
 		// TODO Create settings menu
 
@@ -525,12 +524,7 @@ public class Gui extends JFrame {
 		Consumer<Source<?>> sourceUpdater = source -> {
 			@SuppressWarnings("unchecked")
 			Source<Mail> mailSource = (Source<Mail>) source;
-			Mail.Body.Textual mailBody = Main.getPlainOrHtmlBody(mailSource.resolve());
-			JTextArea mailArea = new JTextArea();
-			mailArea.setEditable(false);
-			mailArea.setLineWrap(true);
-			mailArea.setText(mailBody.text());
-			mailArea.setCaretPosition(0);
+			JComponent mailArea = createMailArea2(ctx, mailSource.resolve());
 
 			sourcePanel.removeAll();
 			sourcePanel.add(mailArea);
@@ -547,6 +541,18 @@ public class Gui extends JFrame {
 				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
 
 		return panel;
+	}
+
+	private static JComponent createMailArea2(CheckMailContext ctx, Mail mail) {
+		JMailPanel mailPanel = new JMailPanel(ctx.frameContext().dateTimeFormatter());
+
+		// TODO Use buttons to move in history
+		mailPanel.setPreviousButtonEnabled(false);
+		mailPanel.setNextButtonEnabled(false);
+
+		mailPanel.setMail(mail);
+
+		return mailPanel;
 	}
 
 	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableArea2(CheckMailContext ctx,
@@ -683,56 +689,21 @@ public class Gui extends JFrame {
 	}
 
 	private static JComponent createMailDisplay(CheckMailContext ctx) {
-		JLabel mailDate = new JLabel("", JLabel.CENTER);
-		JLabel mailSender = new JLabel("", JLabel.TRAILING);
-		JLabel mailReceivers = new JLabel("", JLabel.LEADING);
-		JPanel mailSummary = new JPanel();
-		{
-			mailSummary.setLayout(new GridBagLayout());
-			GridBagConstraints constraints = new GridBagConstraints();
-			constraints.insets = new Insets(0, 5, 0, 5);
-			constraints.fill = GridBagConstraints.HORIZONTAL;
-			constraints.weightx = 0;
-			mailSummary.add(mailDate, constraints);
-			constraints.weightx = 1;
-			mailSummary.add(mailSender, constraints);
-			constraints.weightx = 0;
-			mailSummary.add(new JLabel("→", JLabel.CENTER), constraints);
-			constraints.weightx = 1;
-			mailSummary.add(mailReceivers, constraints);
-		}
-
-		JButton previousButton = new JButton("<");
-		JButton nextButton = new JButton(">");
-		JPanel navigationBar = new JPanel();
-		navigationBar.setLayout(new BorderLayout());
-		navigationBar.add(previousButton, BorderLayout.LINE_START);
-		navigationBar.add(mailSummary, BorderLayout.CENTER);
-		navigationBar.add(nextButton, BorderLayout.LINE_END);
-
-		JTextArea mailArea = new JTextArea();
-		mailArea.setEditable(false);
-		mailArea.setLineWrap(true);
-
-		JPanel panel = new JPanel();
-		panel.setLayout(new BorderLayout());
-		panel.add(navigationBar, BorderLayout.PAGE_START);
-		panel.add(new JScrollPane(mailArea, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
-				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), BorderLayout.CENTER);
+		JMailPanel mailPanel = new JMailPanel(ctx.frameContext().dateTimeFormatter());
 
 		// Set the state of the buttons and their update logics
-		previousButton.setEnabled(false);
-		nextButton.setEnabled(false);
+		mailPanel.setPreviousButtonEnabled(false);
+		mailPanel.setNextButtonEnabled(false);
 		Runnable updateNavigationButtonsState = () -> {
 			Optional<MailId> mailId = ctx.mailId();
 			TreeSet<MailId> mailIds = ctx.mailIds();
-			previousButton.setEnabled(mailId.map(mailIds::lower).isPresent());
-			nextButton.setEnabled(mailId.map(mailIds::higher).isPresent());
+			mailPanel.setPreviousButtonEnabled(mailId.map(mailIds::lower).isPresent());
+			mailPanel.setNextButtonEnabled(mailId.map(mailIds::higher).isPresent());
 		};
 
-		// Disable and re-enabled the buttons on limit cases
-		previousButton.addActionListener(event -> updateNavigationButtonsState.run());
-		nextButton.addActionListener(event -> updateNavigationButtonsState.run());
+		// Disable and re-enable the buttons on limit cases
+		mailPanel.addPreviousButtonListener(event -> updateNavigationButtonsState.run());
+		mailPanel.addNextButtonListener(event -> updateNavigationButtonsState.run());
 
 		// Update the buttons if more IDs are loaded, the limits may have changed
 		ctx.addPropertyChangeListener(event -> {
@@ -742,14 +713,14 @@ public class Gui extends JFrame {
 		});
 
 		// Change the mail ID from the button actions
-		previousButton.addActionListener(event -> {
+		mailPanel.addPreviousButtonListener(event -> {
 			Optional<MailId> mailId = ctx.mailId();
 			TreeSet<MailId> mailIds = ctx.mailIds();
 			ctx.setMailId(mailId.map(mailIds::lower).or(() -> {
 				throw new IllegalStateException("No lower ID, button should not be enabled");
 			}));
 		});
-		nextButton.addActionListener(event -> {
+		mailPanel.addNextButtonListener(event -> {
 			Optional<MailId> mailId = ctx.mailId();
 			TreeSet<MailId> mailIds = ctx.mailIds();
 			ctx.setMailId(mailId.map(mailIds::higher).or(() -> {
@@ -758,63 +729,17 @@ public class Gui extends JFrame {
 		});
 
 		// Change the mail display from the mail ID
-		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT);
-		Function<Address, String> nameFormatter = address -> {
-			return address.name().orElseGet(address::email);
-		};
-		Function<Address, String> toolTipFormatter = address -> {
-			String email = address.email();
-			return address.name()//
-					.map(name -> name + " <" + email + ">")//
-					.orElse(email);
-		};
 		ctx.addPropertyChangeListener(event -> {
 			if (event.getPropertyName().equals(CheckMailContext.MAIL_ID)) {
 				@SuppressWarnings("unchecked")
 				Optional<MailId> mailId = (Optional<MailId>) event.getNewValue();
-
 				mailId.flatMap(id -> ctx.mailRepository()//
 						.map(repository -> repository.mustGet(id)))//
-						.ifPresentOrElse(mail -> {
-							String dateText = dateTimeFormatter.format(mail.receivedDate());
-							mailDate.setText(dateText);
-
-							Address address = mail.sender();
-							mailSender.setText(nameFormatter.apply(address));
-							mailSender.setToolTipText(toolTipFormatter.apply(address));
-
-							List<Address> receivers = mail.receivers().toList();
-							if (receivers.size() == 1) {
-								Address firstAddress = mail.receivers().findFirst().get();
-								mailReceivers.setText(nameFormatter.apply(firstAddress));
-								mailReceivers.setToolTipText(toolTipFormatter.apply(firstAddress));
-							} else {
-								Address firstAddress = mail.receivers().findFirst().get();
-								mailReceivers.setText(nameFormatter.apply(firstAddress) + " ...");
-								String allReceivers = "<html>" + receivers.stream()//
-										.map(toolTipFormatter)//
-										.map(text -> text.replace("<", "&lt;"))//
-										.map(text -> text.replace(">", "&gt;"))//
-										.collect(joining("<br>")) //
-										+ "</html>";
-								mailReceivers.setToolTipText(allReceivers);
-							}
-
-							String bodyText = Main.getPlainOrHtmlBody(mail).text();
-							mailArea.setText(bodyText);
-							mailArea.setCaretPosition(0);
-						}, () -> {
-							mailDate.setText("-");
-							mailSender.setText("-");
-							mailSender.setToolTipText(null);
-							mailReceivers.setText("-");
-							mailReceivers.setToolTipText(null);
-							mailArea.setText("<no mail displayed>");
-						});
+						.ifPresentOrElse(mailPanel::setMail, mailPanel::clearMail);
 			}
 		});
 
-		return panel;
+		return mailPanel;
 	}
 
 	static class CheckMailContext {
@@ -1015,12 +940,14 @@ public class Gui extends JFrame {
 		private final Supplier<Optional<Repository.Updatable<QuestionId, Question>>> questionRepositorySupplier;
 		private final Function<MailId, Source<Mail>> mailTracker;
 		private final Function<Source<Mail>, MailId> mailUntracker;
+		private final DateTimeFormatter dateTimeFormatter;
 
 		public FrameContext(JFrame frame, DialogController dialogController,
 				Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier,
 				Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier,
 				Supplier<Optional<Repository.Updatable<QuestionId, Question>>> questionRepositorySupplier,
-				Function<MailId, Source<Mail>> mailTracker, Function<Source<Mail>, MailId> mailUntracker) {
+				Function<MailId, Source<Mail>> mailTracker, Function<Source<Mail>, MailId> mailUntracker,
+				DateTimeFormatter dateTimeFormatter) {
 			this.dialogController = dialogController;
 			this.mailRepositorySupplier = mailRepositorySupplier;
 			this.issueRepositorySupplier = issueRepositorySupplier;
@@ -1028,6 +955,11 @@ public class Gui extends JFrame {
 			this.frame = frame;
 			this.mailTracker = mailTracker;
 			this.mailUntracker = mailUntracker;
+			this.dateTimeFormatter = dateTimeFormatter;
+		}
+
+		public DateTimeFormatter dateTimeFormatter() {
+			return dateTimeFormatter;
 		}
 
 		public Source<Mail> trackMail(MailId mailId) {
