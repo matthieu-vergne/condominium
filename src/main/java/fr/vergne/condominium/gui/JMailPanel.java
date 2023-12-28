@@ -11,7 +11,6 @@ import java.awt.GridBagLayout;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.event.ActionListener;
-import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -21,7 +20,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import javax.imageio.ImageIO;
 import javax.swing.JButton;
@@ -185,35 +183,76 @@ public class JMailPanel extends JPanel {
 		});
 	}
 
-	private X processMixed(Body body) {
-		X x = new X();
-		for (Body subBody : ((Body.Composed) body).bodies()) {
-			process(x, subBody);
-		}
-		// TODO All resources are separate
-		// Example: mail + attachments
-		return x;
-	}
-
-	private X processOctetStream(Body body) {
-		NamedBinaryBody binaryBody = (NamedBinaryBody) body;
-		if (binaryBody.name().endsWith(".pdf")) {
-			return processPdf(binaryBody);
+	private void process(X x, Body body) {
+		if (body.mimeType().equals(MimeType.Text.PLAIN)) {
+			processPlainText(x, body);
+		} else if (body.mimeType().equals(MimeType.Text.HTML)) {
+			processHtml(x, body);
+		} else if (body.mimeType().equals(MimeType.Image.JPEG)) {
+			processImage(x, body);
+		} else if (body.mimeType().equals(MimeType.Image.PNG)) {
+			processImage(x, body);
+		} else if (body.mimeType().equals(MimeType.Image.GIF)) {
+			processImage(x, body);
+		} else if (body.mimeType().equals(MimeType.Image.HEIC)) {
+			processImage(x, body);
+		} else if (body.mimeType().equals(MimeType.Application.PDF)) {
+			processPdf(x, body);
+		} else if (body.mimeType().equals(MimeType.Application.OCTET_STREAM)) {
+			processOctetStream(x, body);
+		} else if (body.mimeType().equals(MimeType.Multipart.ALTERNATIVE)) {
+			processAlternatives(x, body);
+		} else if (body.mimeType().equals(MimeType.Multipart.RELATED)) {
+			processRelated(x, body);
+		} else if (body.mimeType().equals(MimeType.Multipart.MIXED)) {
+			processMixed(x, body);
 		} else {
 			throw new RuntimeException("Not implemented yet: " + body);
 		}
 	}
 
-	private X processPdf(Body body) {
-		return processPdf((NamedBinaryBody) body);
+	private void processMixed(X x, Body body) {
+		// TODO All resources are separate
+		// Example: mail + attachments
+		for (Body subBody : ((Body.Composed) body).bodies()) {
+			process(x, subBody);
+		}
 	}
 
-	private X processPdf(NamedBinaryBody pdfBody) {
-		X x = new X();
+	private void processRelated(X x, Body body) {
+		// TODO All related make a composed resource
+		// Example: mail + included image
+		for (Body subBody : ((Body.Composed) body).bodies()) {
+			process(x, subBody);
+		}
+	}
+
+	private void processAlternatives(X x, Body body) {
+		// TODO All alternatives make a single resource
+		// Example: plain + HTML versions
+		for (Body subBody : ((Body.Composed) body).bodies()) {
+			process(x, subBody);
+		}
+	}
+
+	private void processOctetStream(X x, Body body) {
+		NamedBinaryBody binaryBody = (NamedBinaryBody) body;
+		if (binaryBody.name().endsWith(".pdf")) {
+			processPdf(x, binaryBody);
+		} else {
+			throw new RuntimeException("Not implemented yet: " + body);
+		}
+	}
+
+	private void processPdf(X x, Body body) {
+		processPdf(x, (NamedBinaryBody) body);
+	}
+
+	private void processPdf(X x, NamedBinaryBody pdfBody) {
+		String id = pdfBody.contentId();
 		String name = pdfBody.name();
 		byte[] bytes = pdfBody.bytes();
-		String id = pdfBody.contentId();
-		x.attachedPdfs.put(id, new Pdf() {
+		Pdf pdf = new Pdf() {
 
 			@Override
 			public String name() {
@@ -224,122 +263,29 @@ public class JMailPanel extends JPanel {
 			public byte[] bytes() {
 				return bytes;
 			}
-		});
-		return x;
+		};
+		x.addAttachedPdf(id, pdf);
 	}
 
-	private X processRelated(Body body) {
-		X x = new X();
-		for (Body subBody : ((Body.Composed) body).bodies()) {
-			process(x, subBody);
-		}
-		// TODO All related make a composed resource
-		// Example: mail + included image
-		return x;
+	private void processPlainText(X x, Body body) {
+		x.setPlainText(((Body.Textual) body).text());
 	}
 
-	private X processImage(Body body) {
+	private void processHtml(X x, Body body) {
+		x.setHtml(((Body.Textual) body).text());
+	}
+
+	private void processImage(X x, Body body) {
 		ImageBody imageBody = (ImageBody) body;
 		byte[] bytes = imageBody.bytes();
-		BufferedImage image;
+		Image image;
 		try {
 			image = ImageIO.read(ImageIO.createImageInputStream(new ByteArrayInputStream(bytes)));
 		} catch (IOException cause) {
 			throw new RuntimeException("Cannot build " + body.mimeType() + " image from bytes", cause);
 		}
 		String id = imageBody.contentId();
-		X x = new X();
-		x.includedImages.put(id, image);
-		return x;
-	}
-
-	private X processAlternatives(Body body) {
-		X x = new X();
-		for (Body subBody : ((Body.Composed) body).bodies()) {
-			process(x, subBody);
-		}
-		// TODO All alternatives make a single resource
-		// Example: plain + HTML versions
-		return x;
-	}
-
-	private void process(X x, Body body) {
-		if (body.mimeType().equals(MimeType.Text.PLAIN)) {
-			compose(x, processPlain(body));
-		} else if (body.mimeType().equals(MimeType.Text.HTML)) {
-			compose(x, processHtml(body));
-		} else if (body.mimeType().equals(MimeType.Image.JPEG)) {
-			compose(x, processImage(body));
-		} else if (body.mimeType().equals(MimeType.Image.PNG)) {
-			compose(x, processImage(body));
-		} else if (body.mimeType().equals(MimeType.Image.GIF)) {
-			compose(x, processImage(body));
-		} else if (body.mimeType().equals(MimeType.Image.HEIC)) {
-			compose(x, processImage(body));
-		} else if (body.mimeType().equals(MimeType.Application.PDF)) {
-			compose(x, processPdf(body));
-		} else if (body.mimeType().equals(MimeType.Application.OCTET_STREAM)) {
-			compose(x, processOctetStream(body));
-		} else if (body.mimeType().equals(MimeType.Multipart.ALTERNATIVE)) {
-			compose(x, processAlternatives(body));
-		} else if (body.mimeType().equals(MimeType.Multipart.RELATED)) {
-			compose(x, processRelated(body));
-		} else if (body.mimeType().equals(MimeType.Multipart.MIXED)) {
-			compose(x, processMixed(body));
-		} else {
-			throw new RuntimeException("Not implemented yet: " + body);
-		}
-	}
-
-	private X processPlain(Body body) {
-		Body.Textual plainBody = (Body.Textual) body;
-		X x = new X();
-		x.plainText = Optional.of(plainBody.text());
-		return x;
-	}
-
-	private void compose(X x, X y) {
-		if (y.plainText.isPresent()) {
-			if (x.plainText.isPresent()) {
-				throw new IllegalStateException("Already a plain value: " + x.plainText.get());
-			} else {
-				x.plainText = y.plainText;
-			}
-		}
-		if (y.htmlText.isPresent()) {
-			if (x.htmlText.isPresent()) {
-				throw new IllegalStateException("Already an HTML value: " + x.htmlText.get());
-			} else {
-				x.htmlText = y.htmlText;
-			}
-		}
-		if (!y.includedImages.isEmpty()) {
-			Set<String> oldKeys = x.includedImages.keySet();
-			Set<String> newKeys = y.includedImages.keySet();
-			List<String> sharedKeys = oldKeys.stream().filter(newKeys::contains).toList();
-			if (!sharedKeys.isEmpty()) {
-				throw new IllegalStateException("Shared included images: " + sharedKeys);
-			} else {
-				x.includedImages.putAll(y.includedImages);
-			}
-		}
-		if (!y.attachedPdfs.isEmpty()) {
-			Set<String> oldKeys = x.attachedPdfs.keySet();
-			Set<String> newKeys = y.attachedPdfs.keySet();
-			List<String> sharedKeys = oldKeys.stream().filter(newKeys::contains).toList();
-			if (!sharedKeys.isEmpty()) {
-				throw new IllegalStateException("Shared attached PDFs: " + sharedKeys);
-			} else {
-				x.attachedPdfs.putAll(y.attachedPdfs);
-			}
-		}
-	}
-
-	private X processHtml(Body body) {
-		Body.Textual htmlBody = (Body.Textual) body;
-		X x = new X();
-		x.htmlText = Optional.of(htmlBody.text());
-		return x;
+		x.addIncludedImage(id, image);
 	}
 
 	interface Pdf {
@@ -348,14 +294,46 @@ public class JMailPanel extends JPanel {
 		byte[] bytes();
 	}
 
+	// TODO Rename
 	public static class X {
-		Optional<String> plainText = Optional.empty();
-		Optional<String> htmlText = Optional.empty();
-		Map<String, Image> includedImages = new HashMap<>();
-		Map<String, Pdf> attachedPdfs = new HashMap<>();
 
-		// FIXME Compose Xs iteratively
-		// TODO Rename X
+		private Optional<String> plainText = Optional.empty();
+
+		public void setPlainText(String plainText) {
+			if (this.plainText.isPresent()) {
+				throw new IllegalStateException("Already a plain value: " + this.plainText.get());
+			} else {
+				this.plainText = Optional.of(plainText);
+			}
+		}
+
+		private Optional<String> html = Optional.empty();
+
+		public void setHtml(String html) {
+			if (this.html.isPresent()) {
+				throw new IllegalStateException("Already an HTML value: " + this.html.get());
+			} else {
+				this.html = Optional.of(html);
+			}
+		}
+
+		private final Map<String, Image> includedImages = new HashMap<>();
+
+		public void addIncludedImage(String id, Image image) {
+			Image existingImage = includedImages.putIfAbsent(id, image);
+			if (existingImage != null) {
+				throw new IllegalStateException("Image key already used: " + id);
+			}
+		}
+
+		private final Map<String, Pdf> attachedPdfs = new HashMap<>();
+
+		public void addAttachedPdf(String id, Pdf pdf) {
+			Pdf existingPdf = attachedPdfs.putIfAbsent(id, pdf);
+			if (existingPdf != null) {
+				throw new IllegalStateException("PDF key already used: " + id);
+			}
+		}
 	}
 
 	public void clearMail() {
