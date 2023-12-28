@@ -84,7 +84,7 @@ public interface Mail {
 
 		public static interface Composed extends Body {
 
-			Collection<? extends Body> bodies();
+			Collection<Body> bodies();
 
 		}
 

@@ -400,7 +400,7 @@ public class Main {
 				}).findFirst().orElseThrow();
 	}
 
-	private static Stream<? extends Body> flattenRecursively(Body body) {
+	public static Stream<? extends Body> flattenRecursively(Body body) {
 		return body instanceof Mail.Body.Composed composed //
 				? composed.bodies().stream().flatMap(Main::flattenRecursively) //
 				: Stream.of(body);

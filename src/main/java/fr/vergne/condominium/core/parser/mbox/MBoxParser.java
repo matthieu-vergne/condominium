@@ -378,20 +378,29 @@ public class MBoxParser {
 				return new IcsBody(MimeType.Application.ICS, stringSupplier.get(), contentType.name().get());
 			} else if (contentType.mimeType().equals(MimeType.Application.PDF)) {
 				// https://opensource.adobe.com/dc-acrobat-sdk-docs/pdflsdk/#pdf-reference
-				return new NamedBinaryBody(MimeType.Application.PDF, bytesSupplier.get(), contentType.name().get());
+				String contentId = headers.get("Content-ID").body();
+				return new NamedBinaryBody(MimeType.Application.PDF, contentId, contentType.name().get(),
+						bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Application.WORD)) {
-				return new NamedBinaryBody(MimeType.Application.WORD, bytesSupplier.get(), contentType.name().get());
+				String contentId = headers.get("Content-ID").body();
+				return new NamedBinaryBody(MimeType.Application.WORD, contentId, contentType.name().get(),
+						bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Application.SPREADSHEET)) {
-				return new NamedBinaryBody(MimeType.Application.SPREADSHEET, bytesSupplier.get(),
-						contentType.name().get());
+				String contentId = headers.get("Content-ID").body();
+				return new NamedBinaryBody(MimeType.Application.SPREADSHEET, contentId, contentType.name().get(),
+						bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Image.PNG)) {
-				return new ImageBody(MimeType.Image.PNG, bytesSupplier.get());
+				String contentId = headers.get("Content-ID").body();
+				return new ImageBody(MimeType.Image.PNG, contentId, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Image.JPEG)) {
-				return new ImageBody(MimeType.Image.JPEG, bytesSupplier.get());
+				String contentId = headers.get("Content-ID").body();
+				return new ImageBody(MimeType.Image.JPEG, contentId, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Image.GIF)) {
-				return new ImageBody(MimeType.Image.GIF, bytesSupplier.get());
+				String contentId = headers.get("Content-ID").body();
+				return new ImageBody(MimeType.Image.GIF, contentId, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Image.HEIC)) {
-				return new ImageBody(MimeType.Image.HEIC, bytesSupplier.get());
+				String contentId = headers.get("Content-ID").body();
+				return new ImageBody(MimeType.Image.HEIC, contentId, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Video.MP4)) {
 				return new VideoBody(MimeType.Video.MP4, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Multipart.MIXED)) {
@@ -442,8 +451,9 @@ public class MBoxParser {
 				// TODO Retrieve type from content if possible, otherwise from name
 				return contentType.name().map(name -> {
 					if (name.endsWith(".pdf")) {
-						return new NamedBinaryBody(MimeType.Application.OCTET_STREAM, bytesSupplier.get(),
-								contentType.name().get());
+						String contentId = headers.get("Content-ID").body();
+						return new NamedBinaryBody(MimeType.Application.OCTET_STREAM, contentId, name,
+								bytesSupplier.get());
 					} else {
 						throw new RuntimeException("Not supported: " + name);
 					}
@@ -590,15 +600,15 @@ public class MBoxParser {
 	}
 
 	public static class ComposedBody extends TypedBody implements Mail.Body.Composed {
-		private final Collection<? extends Mail.Body> bodies;
+		private final Collection<Mail.Body> bodies;
 
-		public ComposedBody(MimeType mimeType, Collection<? extends Mail.Body> bodies) {
+		public ComposedBody(MimeType mimeType, Collection<Mail.Body> bodies) {
 			super(mimeType);
 			this.bodies = bodies;
 		}
 
 		@Override
-		public Collection<? extends Mail.Body> bodies() {
+		public Collection<Mail.Body> bodies() {
 			return bodies;
 		}
 
@@ -649,10 +659,16 @@ public class MBoxParser {
 
 	public static class NamedBinaryBody extends BinaryBody implements Mail.Body.Named {
 		private final String name;
+		private final String contentId;
 
-		public NamedBinaryBody(MimeType mimeType, byte[] bytes, String name) {
+		public NamedBinaryBody(MimeType mimeType, String contentId, String name, byte[] bytes) {
 			super(mimeType, bytes);
 			this.name = name;
+			this.contentId = contentId;
+		}
+
+		public String contentId() {
+			return contentId;
 		}
 
 		@Override
@@ -690,10 +706,16 @@ public class MBoxParser {
 		}
 
 		private final byte[] bytes;
+		private final String contentId;
 
-		public ImageBody(MimeType mimeType, byte[] bytes) {
+		public ImageBody(MimeType mimeType, String contentId, byte[] bytes) {
 			super(mimeType);
 			this.bytes = bytes;
+			this.contentId = contentId;
+		}
+
+		public String contentId() {
+			return contentId;
 		}
 
 		public byte[] bytes() {
