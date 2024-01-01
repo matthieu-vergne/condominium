@@ -27,7 +27,10 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -58,6 +61,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
@@ -202,9 +206,13 @@ public class Gui extends JFrame {
 
 		// TODO Create settings menu
 
+		JPanel footerPanel = createFooter(ctx);
+
 		Container contentPane = getContentPane();
+		contentPane.setLayout(new BorderLayout());
 		JTabbedPane tabsPane = new JTabbedPane(JTabbedPane.TOP);
-		contentPane.add(tabsPane);
+		contentPane.add(tabsPane, BorderLayout.CENTER);
+		contentPane.add(footerPanel, BorderLayout.PAGE_END);
 		tabsPane.add("Check mails", createCheckMailTab(CheckMailContext.init(ctx)));
 
 		pack();
@@ -240,6 +248,65 @@ public class Gui extends JFrame {
 			}
 		}));
 		globalConf[0] = frameConf;
+	}
+
+	private JPanel createFooter(FrameContext ctx) {
+		JPanel footerPanel = new JPanel(new FlowLayout(FlowLayout.TRAILING));
+		footerPanel.add(createFooterLogsButton(ctx));
+		return footerPanel;
+	}
+
+	private JButton createFooterLogsButton(FrameContext ctx) {
+		JButton logsButton = new JButton("-");
+		logsButton.setEnabled(false);
+		logsButton.setToolTipText("No error occurred so far");
+
+		Path errorLogsPath;
+		try {
+			errorLogsPath = Files.createTempFile("gui", "error.log");
+		} catch (IOException cause) {
+			throw new RuntimeException("Cannot create error log file", cause);
+		}
+		FileOutputStream errorLogsStream;
+		try {
+			errorLogsStream = new FileOutputStream(errorLogsPath.toFile());
+		} catch (FileNotFoundException cause) {
+			throw new RuntimeException("Cannot open error log file: " + errorLogsPath, cause);
+		}
+
+		System.setErr(new PrintStream(System.err) {
+			@Override
+			public void write(byte[] buf, int off, int len) {
+				try {
+					errorLogsStream.write(buf, off, len);
+					if (!logsButton.isEnabled()) {
+						logsButton.setToolTipText("Some errors occurred");
+						logsButton.setText("!");
+						logsButton.setBackground(Color.RED);
+						logsButton.setEnabled(true);
+					}
+				} catch (IOException cause) {
+					throw new RuntimeException("Cannot write error log file: " + errorLogsPath, cause);
+				}
+				super.write(buf, off, len);
+			}
+		});
+
+		logsButton.addActionListener(event -> {
+			String errors;
+			try {
+				errors = Files.readString(errorLogsPath);
+			} catch (IOException cause) {
+				throw new RuntimeException("Cannot read error log file: " + errorLogsPath, cause);
+			}
+
+			JTextArea logs = new JTextArea(errors);
+			logs.setEditable(false);
+			ctx.addTabCloseable(new JLabel("Errors"), new JScrollPane(logs, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+					JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED));
+		});
+
+		return logsButton;
 	}
 
 	private static <T> Supplier<T> cache(Supplier<T> supplier) {
