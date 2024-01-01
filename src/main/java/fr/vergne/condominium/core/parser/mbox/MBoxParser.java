@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Spliterators;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -40,6 +41,7 @@ import fr.vergne.condominium.core.mail.Header;
 import fr.vergne.condominium.core.mail.Headers;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Body;
+import fr.vergne.condominium.core.mail.Mail.Body.Visitor;
 import fr.vergne.condominium.core.mail.MimeType;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser.Encoding.Decoder.FromString;
 import fr.vergne.condominium.core.util.StringEscaper;
@@ -322,7 +324,7 @@ public class MBoxParser {
 			bodyContentBuilder.append(line).append(separator);
 		}
 		String bodyContent = bodyContentBuilder.toString();
-		RawBody rawBody = new RawBody(bodyContent);
+		RawBody rawBody = new RawBody(bodyContent, notImplementedVisitor());
 
 		// References:
 		// https://datatracker.ietf.org/doc/html/rfc2045#section-6.1
@@ -358,51 +360,54 @@ public class MBoxParser {
 			Supplier<byte[]> bytesSupplier = () -> bytesDecoder.apply(bodyContent);
 			if (contentType.mimeType().equals(MimeType.Text.PLAIN)) {
 				// TODO Deduplicate class + mime type
-				return new TextualBody(MimeType.Text.PLAIN, stringSupplier.get());
+				String text = stringSupplier.get();
+				return new TextualBody(MimeType.Text.PLAIN, Body.Visitor::visitPlainText, text);
 			} else if (contentType.mimeType().equals(MimeType.Text.HTML)) {
-				return new TextualBody(MimeType.Text.HTML, stringSupplier.get());
+				return new TextualBody(MimeType.Text.HTML, Body.Visitor::visitHtml, stringSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Text.AMP)) {
-				return new TextualBody(MimeType.Text.AMP, stringSupplier.get());
+				return new TextualBody(MimeType.Text.AMP, notImplementedVisitor(), stringSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Text.RFC822_HEADERS)) {
 				// https://datatracker.ietf.org/doc/html/rfc1892#section-2
-				return new TextualBody(MimeType.Text.RFC822_HEADERS, stringSupplier.get());
+				return new TextualBody(MimeType.Text.RFC822_HEADERS, notImplementedVisitor(), stringSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Message.RFC822)) {
 				// https://datatracker.ietf.org/doc/html/rfc2046#section-5.2
-				return new TextualBody(MimeType.Message.RFC822, stringSupplier.get());
+				return new TextualBody(MimeType.Message.RFC822, notImplementedVisitor(), stringSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Message.DELIVERY_STATUS)) {
 				// https://datatracker.ietf.org/doc/html/rfc3464#section-2.1
-				return new TextualBody(MimeType.Message.DELIVERY_STATUS, stringSupplier.get());
+				return new TextualBody(MimeType.Message.DELIVERY_STATUS, notImplementedVisitor(), stringSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Text.CALENDAR)) {
-				return new CalendarBody(MimeType.Text.CALENDAR, stringSupplier.get(), contentType.method().get());
+				return new CalendarBody(MimeType.Text.CALENDAR, notImplementedVisitor(), stringSupplier.get(),
+						contentType.method().get());
 			} else if (contentType.mimeType().equals(MimeType.Application.ICS)) {
-				return new IcsBody(MimeType.Application.ICS, stringSupplier.get(), contentType.name().get());
+				return new IcsBody(MimeType.Application.ICS, notImplementedVisitor(), stringSupplier.get(),
+						contentType.name().get());
 			} else if (contentType.mimeType().equals(MimeType.Application.PDF)) {
 				// https://opensource.adobe.com/dc-acrobat-sdk-docs/pdflsdk/#pdf-reference
 				String contentId = headers.get("Content-ID").body();
-				return new NamedBinaryBody(MimeType.Application.PDF, contentId, contentType.name().get(),
-						bytesSupplier.get());
+				return new NamedBinaryBody(MimeType.Application.PDF, notImplementedVisitor(), contentId,
+						contentType.name().get(), bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Application.WORD)) {
 				String contentId = headers.get("Content-ID").body();
-				return new NamedBinaryBody(MimeType.Application.WORD, contentId, contentType.name().get(),
-						bytesSupplier.get());
+				return new NamedBinaryBody(MimeType.Application.WORD, notImplementedVisitor(), contentId,
+						contentType.name().get(), bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Application.SPREADSHEET)) {
 				String contentId = headers.get("Content-ID").body();
-				return new NamedBinaryBody(MimeType.Application.SPREADSHEET, contentId, contentType.name().get(),
-						bytesSupplier.get());
+				return new NamedBinaryBody(MimeType.Application.SPREADSHEET, notImplementedVisitor(), contentId,
+						contentType.name().get(), bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Image.PNG)) {
 				String contentId = headers.get("Content-ID").body();
-				return new ImageBody(MimeType.Image.PNG, contentId, bytesSupplier.get());
+				return new ImageBody(MimeType.Image.PNG, Body.Visitor::visitImage, contentId, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Image.JPEG)) {
 				String contentId = headers.get("Content-ID").body();
-				return new ImageBody(MimeType.Image.JPEG, contentId, bytesSupplier.get());
+				return new ImageBody(MimeType.Image.JPEG, Body.Visitor::visitImage, contentId, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Image.GIF)) {
 				String contentId = headers.get("Content-ID").body();
-				return new ImageBody(MimeType.Image.GIF, contentId, bytesSupplier.get());
+				return new ImageBody(MimeType.Image.GIF, Body.Visitor::visitImage, contentId, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Image.HEIC)) {
 				String contentId = headers.get("Content-ID").body();
-				return new ImageBody(MimeType.Image.HEIC, contentId, bytesSupplier.get());
+				return new ImageBody(MimeType.Image.HEIC, Body.Visitor::visitImage, contentId, bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Video.MP4)) {
-				return new VideoBody(MimeType.Video.MP4, bytesSupplier.get());
+				return new VideoBody(MimeType.Video.MP4, notImplementedVisitor(), bytesSupplier.get());
 			} else if (contentType.mimeType().equals(MimeType.Multipart.MIXED)) {
 				// References:
 				// https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.3
@@ -410,10 +415,11 @@ public class MBoxParser {
 				// TODO Default multipart, or if not recognized, should be considered as mixed
 				String boundary = contentType.boundary().get();
 				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
-				return new ComposedBody(MimeType.Multipart.MIXED, Stream.of(bodyContent.split(boundaryRegex))//
-						.skip(1)// Ignore first part
-						.map(part -> parse(part.lines().iterator()).body())//
-						.toList()//
+				return new ComposedBody(MimeType.Multipart.MIXED, Body.Visitor::visitMultipartMixed,
+						Stream.of(bodyContent.split(boundaryRegex))//
+								.skip(1)// Ignore first part
+								.map(part -> parse(part.lines().iterator()).body())//
+								.toList()//
 				);
 			} else if (contentType.mimeType().equals(MimeType.Multipart.ALTERNATIVE)) {
 				// References:
@@ -421,10 +427,11 @@ public class MBoxParser {
 				// TODO Check reference to properly parse it
 				String boundary = contentType.boundary().get();
 				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
-				return new ComposedBody(MimeType.Multipart.ALTERNATIVE, Stream.of(bodyContent.split(boundaryRegex))//
-						.skip(1)// Ignore first part
-						.map(part -> parse(part.lines().iterator()).body())//
-						.toList()//
+				return new ComposedBody(MimeType.Multipart.ALTERNATIVE, Body.Visitor::visitMultipartAlternative,
+						Stream.of(bodyContent.split(boundaryRegex))//
+								.skip(1)// Ignore first part
+								.map(part -> parse(part.lines().iterator()).body())//
+								.toList()//
 				);
 			} else if (contentType.mimeType().equals(MimeType.Multipart.RELATED)) {
 				// References:
@@ -432,28 +439,30 @@ public class MBoxParser {
 				// TODO Check reference to properly parse it
 				String boundary = contentType.boundary().get();
 				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
-				return new ComposedBody(MimeType.Multipart.RELATED, Stream.of(bodyContent.split(boundaryRegex))//
-						.skip(1)// Ignore first part
-						.map(part -> parse(part.lines().iterator()).body())//
-						.toList());
+				return new ComposedBody(MimeType.Multipart.RELATED, Body.Visitor::visitMultipartRelated,
+						Stream.of(bodyContent.split(boundaryRegex))//
+								.skip(1)// Ignore first part
+								.map(part -> parse(part.lines().iterator()).body())//
+								.toList());
 			} else if (contentType.mimeType().equals(MimeType.Multipart.REPORT)) {
 				// References:
 				// https://datatracker.ietf.org/doc/html/rfc6522
 				// TODO Check reference to properly parse it
 				String boundary = contentType.boundary().get();
 				String boundaryRegex = "(^|\\r?\\n)--" + boundary + "(--)?(\\r?\\n|$)";
-				return new ComposedBody(MimeType.Multipart.REPORT, Stream.of(bodyContent.split(boundaryRegex))//
-						.skip(1)// Ignore first part
-						.map(part -> parse(part.lines().iterator()).body())//
-						.toList());
+				return new ComposedBody(MimeType.Multipart.REPORT, notImplementedVisitor(),
+						Stream.of(bodyContent.split(boundaryRegex))//
+								.skip(1)// Ignore first part
+								.map(part -> parse(part.lines().iterator()).body())//
+								.toList());
 			} else if (contentType.mimeType().equals(MimeType.Application.OCTET_STREAM)) {
 				// TODO Should we be careful of application/octet-stream for security?
 				// TODO Retrieve type from content if possible, otherwise from name
 				return contentType.name().map(name -> {
 					if (name.endsWith(".pdf")) {
 						String contentId = headers.get("Content-ID").body();
-						return new NamedBinaryBody(MimeType.Application.OCTET_STREAM, contentId, name,
-								bytesSupplier.get());
+						return new NamedBinaryBody(MimeType.Application.OCTET_STREAM, Body.Visitor::visitPdf, contentId,
+								name, bytesSupplier.get());
 					} else {
 						throw new RuntimeException("Not supported: " + name);
 					}
@@ -464,6 +473,13 @@ public class MBoxParser {
 		}).orElse(rawBody);
 
 		return body;
+	}
+
+	private BiConsumer<Visitor, Body> notImplementedVisitor() {
+		RuntimeException rootCause = new RuntimeException("Not implemented visitor");
+		return (visitor, body) -> {
+			throw new RuntimeException("Not implemented for: " + body, rootCause);
+		};
 	}
 
 	interface ContentType {
@@ -570,14 +586,21 @@ public class MBoxParser {
 
 	public static class RawBody implements Mail.Body {
 		private final String content;
+		private final BiConsumer<Body.Visitor, Body> visitorConsumer;
 
-		public RawBody(String content) {
+		public RawBody(String content, BiConsumer<Body.Visitor, Body> visitorConsumer) {
 			this.content = content;
+			this.visitorConsumer = visitorConsumer;
 		}
 
 		@Override
 		public MimeType mimeType() {
 			throw new NoSuchElementException("No mime type provided");
+		}
+
+		@Override
+		public void visit(Body.Visitor visitor) {
+			visitorConsumer.accept(visitor, this);
 		}
 
 		@Override
@@ -588,22 +611,30 @@ public class MBoxParser {
 
 	public static class TypedBody implements Mail.Body {
 		private final MimeType mimeType;
+		private final BiConsumer<Body.Visitor, Body> visitorConsumer;
 
-		public TypedBody(MimeType mimeType) {
+		public TypedBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer) {
 			this.mimeType = mimeType;
+			this.visitorConsumer = visitorConsumer;
 		}
 
 		@Override
 		public MimeType mimeType() {
 			return mimeType;
 		}
+
+		@Override
+		public void visit(Body.Visitor visitor) {
+			visitorConsumer.accept(visitor, this);
+		}
 	}
 
 	public static class ComposedBody extends TypedBody implements Mail.Body.Composed {
 		private final Collection<Mail.Body> bodies;
 
-		public ComposedBody(MimeType mimeType, Collection<Mail.Body> bodies) {
-			super(mimeType);
+		public ComposedBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer,
+				Collection<Mail.Body> bodies) {
+			super(mimeType, visitorConsumer);
 			this.bodies = bodies;
 		}
 
@@ -622,8 +653,8 @@ public class MBoxParser {
 	public static class TextualBody extends TypedBody implements Mail.Body.Textual {
 		private final String text;
 
-		public TextualBody(MimeType mimeType, String text) {
-			super(mimeType);
+		public TextualBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer, String text) {
+			super(mimeType, visitorConsumer);
 			this.text = text;
 		}
 
@@ -641,8 +672,8 @@ public class MBoxParser {
 	public static class BinaryBody extends TypedBody implements Mail.Body.Binary {
 		private final byte[] bytes;
 
-		public BinaryBody(MimeType mimeType, byte[] bytes) {
-			super(mimeType);
+		public BinaryBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer, byte[] bytes) {
+			super(mimeType, visitorConsumer);
 			this.bytes = bytes;
 		}
 
@@ -661,8 +692,9 @@ public class MBoxParser {
 		private final String name;
 		private final String contentId;
 
-		public NamedBinaryBody(MimeType mimeType, String contentId, String name, byte[] bytes) {
-			super(mimeType, bytes);
+		public NamedBinaryBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer, String contentId,
+				String name, byte[] bytes) {
+			super(mimeType, visitorConsumer, bytes);
 			this.name = name;
 			this.contentId = contentId;
 		}
@@ -708,8 +740,9 @@ public class MBoxParser {
 		private final byte[] bytes;
 		private final String contentId;
 
-		public ImageBody(MimeType mimeType, String contentId, byte[] bytes) {
-			super(mimeType);
+		public ImageBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer, String contentId,
+				byte[] bytes) {
+			super(mimeType, visitorConsumer);
 			this.bytes = bytes;
 			this.contentId = contentId;
 		}
@@ -754,8 +787,8 @@ public class MBoxParser {
 
 		private final byte[] bytes;
 
-		public VideoBody(MimeType mimeType, byte[] bytes) {
-			super(mimeType);
+		public VideoBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer, byte[] bytes) {
+			super(mimeType, visitorConsumer);
 			this.bytes = bytes;
 		}
 
@@ -777,8 +810,9 @@ public class MBoxParser {
 		private final String script;
 		private final String method;
 
-		public CalendarBody(MimeType mimeType, String script, String method) {
-			super(mimeType);
+		public CalendarBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer, String script,
+				String method) {
+			super(mimeType, visitorConsumer);
 			this.script = script;
 			this.method = method;
 		}
@@ -801,8 +835,8 @@ public class MBoxParser {
 		private final String script;
 		private final String name;
 
-		public IcsBody(MimeType mimeType, String script, String name) {
-			super(mimeType);
+		public IcsBody(MimeType mimeType, BiConsumer<Body.Visitor, Body> visitorConsumer, String script, String name) {
+			super(mimeType, visitorConsumer);
 			this.script = script;
 			this.name = name;
 		}

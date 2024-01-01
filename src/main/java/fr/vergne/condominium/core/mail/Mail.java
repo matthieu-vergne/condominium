@@ -70,6 +70,8 @@ public interface Mail {
 
 		MimeType mimeType();
 
+		void visit(Body.Visitor visitor);
+
 		public static interface Textual extends Body {
 			String text();
 		}
@@ -88,6 +90,21 @@ public interface Mail {
 
 		}
 
+		public static interface Visitor {
+			void visitPlainText(Body body);
+
+			void visitHtml(Body body);
+
+			void visitImage(Body body);
+
+			void visitPdf(Body body);
+
+			void visitMultipartAlternative(Body body);
+
+			void visitMultipartRelated(Body body);
+
+			void visitMultipartMixed(Body body);
+		}
 	}
 
 	static class Base implements Mail {
