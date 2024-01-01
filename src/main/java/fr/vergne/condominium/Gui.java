@@ -16,6 +16,7 @@ import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.event.AWTEventListener;
+import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyAdapter;
@@ -50,11 +51,14 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import javax.swing.AbstractAction;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -204,9 +208,9 @@ public class Gui extends JFrame {
 		FrameContext ctx = new FrameContext(this, new DialogController(this), mailRepositorySupplier,
 				issueRepositorySupplier, questionRepositorySupplier, mailTracker, mailUntracker, dateTimeFormatter);
 
-		// TODO Create settings menu
-
 		JPanel footerPanel = createFooter(ctx);
+
+		setJMenuBar(createMenuBar(ctx, confSupplier));
 
 		Container contentPane = getContentPane();
 		contentPane.setLayout(new BorderLayout());
@@ -248,6 +252,48 @@ public class Gui extends JFrame {
 			}
 		}));
 		globalConf[0] = frameConf;
+	}
+
+	private JMenuBar createMenuBar(FrameContext ctx, Supplier<Optional<Properties>> confSupplier) {
+		JMenuBar menuBar = new JMenuBar();
+		menuBar.add(createFileMenu(ctx, confSupplier));
+		return menuBar;
+	}
+
+	private JMenu createFileMenu(FrameContext ctx, Supplier<Optional<Properties>> confSupplier) {
+		JMenu fileMenu = new JMenu("File");
+		{
+			JMenuItem settingsMenuItem = new JMenuItem("Settings");
+			/*
+			 * menuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S,
+			 * InputEvent.ALT_DOWN_MASK));
+			 */
+			settingsMenuItem.addActionListener(event -> {
+				confSupplier.get().ifPresentOrElse(conf -> {
+					// TODO Show settings
+					// TODO Make settings editable and save on change
+					// TODO Make settings as bound properties
+					// TODO Listen on settings to reset suppliers and update GUI
+					JPanel settingsPanel = new JPanel(new GridLayout(1, 1));
+					settingsPanel.add(new JLabel("...Settings..."));
+					ctx.addTabCloseable(new JLabel("Settings"), settingsPanel);
+				}, () -> {
+					ctx.dialogController().showMessageDialog("No conf available right now");
+				});
+			});
+			fileMenu.add(settingsMenuItem);
+		}
+		fileMenu.add(createQuitMenuItem());
+		return fileMenu;
+	}
+
+	private JMenuItem createQuitMenuItem() {
+		return new JMenuItem(new AbstractAction("Quit") {
+			@Override
+			public void actionPerformed(ActionEvent event) {
+				System.exit(0);
+			}
+		});
 	}
 
 	private JPanel createFooter(FrameContext ctx) {
