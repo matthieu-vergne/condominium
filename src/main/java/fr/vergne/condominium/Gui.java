@@ -270,13 +270,51 @@ public class Gui extends JFrame {
 			 */
 			settingsMenuItem.addActionListener(event -> {
 				confSupplier.get().ifPresentOrElse(conf -> {
-					// TODO Show settings
-					// TODO Make settings editable and save on change
+					// TODO Make settings for each repo
+					// TODO Restart on repo change
 					// TODO Make settings as bound properties
+					// TODO Make settings updates in real time (x,y,width,height)
+					// TODO Keep save/reset? Replace by restart?
 					// TODO Listen on settings to reset suppliers and update GUI
-					JPanel settingsPanel = new JPanel(new GridLayout(1, 1));
-					settingsPanel.add(new JLabel("...Settings..."));
-					ctx.addTabCloseable(new JLabel("Settings"), settingsPanel);
+					JPanel settingsPanel = new JPanel(new GridBagLayout());
+					GridBagConstraints constraintsKey = new GridBagConstraints();
+					constraintsKey.anchor = GridBagConstraints.PAGE_START;
+					constraintsKey.gridx = 0;
+					constraintsKey.gridy = GridBagConstraints.RELATIVE;
+					constraintsKey.fill = GridBagConstraints.HORIZONTAL;
+					constraintsKey.weightx = 0;
+					GridBagConstraints constraintsValue = new GridBagConstraints();
+					constraintsValue.anchor = GridBagConstraints.PAGE_START;
+					constraintsValue.gridx = 1;
+					constraintsValue.gridy = GridBagConstraints.RELATIVE;
+					constraintsValue.fill = GridBagConstraints.HORIZONTAL;
+					constraintsValue.weightx = 1;
+					constraintsValue.insets = new Insets(0, 5, 0, 0);
+					conf.forEach((key, value) -> {
+						settingsPanel.add(new JLabel(key.toString()), constraintsKey);
+						settingsPanel.add(new JTextField(value.toString()), constraintsValue);
+					});
+
+					JPanel buttonsPanel = new JPanel(new GridLayout(1, 2));
+					buttonsPanel.add(new JButton(new AbstractAction("Save") {
+						@Override
+						public void actionPerformed(ActionEvent e) {
+							ctx.dialogController().showMessageDialog("Save");
+						}
+					}));
+					buttonsPanel.add(new JButton(new AbstractAction("Reset") {
+						@Override
+						public void actionPerformed(ActionEvent e) {
+							ctx.dialogController().showMessageDialog("Reset");
+						}
+					}));
+
+					JPanel panel = new JPanel(new BorderLayout());
+					panel.add(settingsPanel, BorderLayout.CENTER);
+					panel.add(buttonsPanel, BorderLayout.PAGE_END);
+
+					ctx.addTabCloseable(new JLabel("Settings"), new JScrollPane(panel,
+							JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
 				}, () -> {
 					ctx.dialogController().showMessageDialog("No conf available right now");
 				});
