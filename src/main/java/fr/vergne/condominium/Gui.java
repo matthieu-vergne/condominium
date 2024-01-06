@@ -89,8 +89,10 @@ import fr.vergne.condominium.core.repository.Repository.Updatable;
 import fr.vergne.condominium.core.source.Source;
 import fr.vergne.condominium.core.source.Source.Refiner;
 import fr.vergne.condominium.core.source.Source.Track;
+import fr.vergne.condominium.core.util.Persister;
 import fr.vergne.condominium.core.util.RefinerIdSerializer;
 import fr.vergne.condominium.core.util.Serializer;
+import fr.vergne.condominium.gui.Configuration;
 import fr.vergne.condominium.gui.JMailPanel;
 import fr.vergne.condominium.gui.JMonitorableTitle;
 
@@ -102,23 +104,19 @@ public class Gui extends JFrame {
 	}
 
 	public Gui() {
-		setTitle("Condominium");
-		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		Configuration configuration = new Configuration();
+		Persister confPersister = configuration.persistInFile(Path.of("condoGuiConfig.ini"));
+		if (confPersister.hasSave()) {
+			confPersister.load();
+		}
 
-		Properties[] globalConf = { null };
-		Supplier<Optional<Properties>> confSupplier = () -> {
-			return Optional.ofNullable(globalConf[0]);
-		};
 		// TODO Sync cache of each supplier: if repo is reset, others should be
 		Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier = cache(() -> {
-			return confSupplier.get()//
-					.map(conf -> conf.getProperty("outFolder"))//
-					.map(outFolderConf -> {
-						System.out.println("Load mails from: " + outFolderConf);
-						Path outFolderPath = Paths.get(outFolderConf);
-						Path mailRepositoryPath = outFolderPath.resolve("mails");
-						return Main.createMailRepository(mailRepositoryPath);
-					});
+			String outFolderConf = configuration.properties().getProperty("outFolder");
+			System.out.println("Load mails from: " + outFolderConf);
+			Path outFolderPath = Paths.get(outFolderConf);
+			Path mailRepositoryPath = outFolderPath.resolve("mails");
+			return Optional.of(Main.createMailRepository(mailRepositoryPath));
 		});
 		record Context(Serializer<Issue, String> issueSerializer, Serializer<Question, String> questionSerializer,
 				Function<MailId, Source<Mail>> mailTracker, Function<Source<Mail>, MailId> mailUntracker) {
@@ -179,38 +177,36 @@ public class Gui extends JFrame {
 		Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier = cache(() -> {
 			System.out.println("Request issues");
 			return issueSerializerSupplier.get().flatMap(issueSerializer -> {
-				return confSupplier.get().map(conf -> conf.getProperty("outFolder")).map(outFolderConf -> {
-					System.out.println("Load issues from: " + outFolderConf);
-					Path outFolderPath = Paths.get(outFolderConf);
-					Path issueRepositoryPath = outFolderPath.resolve("issues");
+				String outFolderConf = configuration.properties().getProperty("outFolder");
+				System.out.println("Load issues from: " + outFolderConf);
+				Path outFolderPath = Paths.get(outFolderConf);
+				Path issueRepositoryPath = outFolderPath.resolve("issues");
 
-					Repository.Updatable<IssueId, Issue> issueRepository = Main
-							.createIssueRepository(issueRepositoryPath, issueSerializer);
-					return issueRepository;
-				});
+				Repository.Updatable<IssueId, Issue> issueRepository = Main.createIssueRepository(issueRepositoryPath,
+						issueSerializer);
+				return Optional.of(issueRepository);
 			});
 		});
 		Supplier<Optional<Updatable<QuestionId, Question>>> questionRepositorySupplier = cache(() -> {
 			System.out.println("Request questions");
 			return questionSerializerSupplier.get().flatMap(questionSerializer -> {
-				return confSupplier.get().map(conf -> conf.getProperty("outFolder")).map(outFolderConf -> {
-					System.out.println("Load questions from: " + outFolderConf);
-					Path outFolderPath = Paths.get(outFolderConf);
-					Path issueRepositoryPath = outFolderPath.resolve("questions");
+				String outFolderConf = configuration.properties().getProperty("outFolder");
+				System.out.println("Load questions from: " + outFolderConf);
+				Path outFolderPath = Paths.get(outFolderConf);
+				Path issueRepositoryPath = outFolderPath.resolve("questions");
 
-					Repository.Updatable<QuestionId, Question> questionRepository = Main
-							.createQuestionRepository(issueRepositoryPath, questionSerializer);
-					return questionRepository;
-				});
+				Repository.Updatable<QuestionId, Question> questionRepository = Main
+						.createQuestionRepository(issueRepositoryPath, questionSerializer);
+				return Optional.of(questionRepository);
 			});
 		});
 		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT);
-		FrameContext ctx = new FrameContext(this, new DialogController(this), mailRepositorySupplier,
+		FrameContext ctx = new FrameContext(configuration, this, new DialogController(this), mailRepositorySupplier,
 				issueRepositorySupplier, questionRepositorySupplier, mailTracker, mailUntracker, dateTimeFormatter);
 
 		JPanel footerPanel = createFooter(ctx);
 
-		setJMenuBar(createMenuBar(ctx, confSupplier));
+		setJMenuBar(createMenuBar(ctx));
 
 		Container contentPane = getContentPane();
 		contentPane.setLayout(new BorderLayout());
@@ -219,48 +215,45 @@ public class Gui extends JFrame {
 		contentPane.add(footerPanel, BorderLayout.PAGE_END);
 		tabsPane.add("Check mails", createCheckMailTab(CheckMailContext.init(ctx)));
 
+		setTitle("Condominium");
+		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		pack();
 
-		Path frameConfPath = Path.of("condoGuiConfig.ini");
-		Properties frameConf = new Properties();
-		String xConf = "x";
-		String yConf = "y";
-		String widthConf = "width";
-		String heightConf = "height";
-		if (Files.exists(frameConfPath)) {
-			try {
-				frameConf.load(Files.newBufferedReader(frameConfPath));
-			} catch (IOException cause) {
-				throw new RuntimeException("Cannot read: " + frameConfPath, cause);
-			}
-			Rectangle bounds = getBounds();
-			applyPropertyIfPresent(frameConf, xConf, x -> bounds.x = x);
-			applyPropertyIfPresent(frameConf, yConf, y -> bounds.y = y);
-			applyPropertyIfPresent(frameConf, widthConf, width -> bounds.width = width);
-			applyPropertyIfPresent(frameConf, heightConf, height -> bounds.height = height);
-			setBounds(bounds);
-		}
-		addComponentListener(onBoundsUpdate(bounds -> {
-			frameConf.setProperty(xConf, "" + bounds.x);
-			frameConf.setProperty(yConf, "" + bounds.y);
-			frameConf.setProperty(widthConf, "" + bounds.width);
-			frameConf.setProperty(heightConf, "" + bounds.height);
-			try {
-				frameConf.store(Files.newBufferedWriter(frameConfPath), null);
-			} catch (IOException cause) {
-				throw new RuntimeException("Cannot write: " + frameConfPath, cause);
-			}
+		// Apply conf after pack() to ensure it is applied
+		configuration.guiBounds().ifPresent(this::setBounds);
+		// Save after applying conf to not preliminary corrupt save with pack() events
+		this.addComponentListener(onBoundsUpdate(bounds -> {
+			configuration.setGuiBounds(bounds);
+			confPersister.save();
 		}));
-		globalConf[0] = frameConf;
 	}
 
-	private JMenuBar createMenuBar(FrameContext ctx, Supplier<Optional<Properties>> confSupplier) {
+	private static ComponentAdapter onBoundsUpdate(Consumer<Rectangle> boundsConsumer) {
+		return new ComponentAdapter() {
+
+			@Override
+			public void componentResized(ComponentEvent event) {
+				updateBounds(event.getComponent().getBounds());
+			}
+
+			@Override
+			public void componentMoved(ComponentEvent event) {
+				updateBounds(event.getComponent().getBounds());
+			}
+
+			private void updateBounds(Rectangle bounds) {
+				boundsConsumer.accept(bounds);
+			}
+		};
+	}
+
+	private JMenuBar createMenuBar(FrameContext ctx) {
 		JMenuBar menuBar = new JMenuBar();
-		menuBar.add(createFileMenu(ctx, confSupplier));
+		menuBar.add(createFileMenu(ctx));
 		return menuBar;
 	}
 
-	private JMenu createFileMenu(FrameContext ctx, Supplier<Optional<Properties>> confSupplier) {
+	private JMenu createFileMenu(FrameContext ctx) {
 		JMenu fileMenu = new JMenu("File");
 		{
 			JMenuItem settingsMenuItem = new JMenuItem("Settings");
@@ -269,55 +262,53 @@ public class Gui extends JFrame {
 			 * InputEvent.ALT_DOWN_MASK));
 			 */
 			settingsMenuItem.addActionListener(event -> {
-				confSupplier.get().ifPresentOrElse(conf -> {
-					// TODO Make settings for each repo
-					// TODO Restart on repo change
-					// TODO Make settings as bound properties
-					// TODO Make settings updates in real time (x,y,width,height)
-					// TODO Keep save/reset? Replace by restart?
-					// TODO Listen on settings to reset suppliers and update GUI
-					JPanel settingsPanel = new JPanel(new GridBagLayout());
-					GridBagConstraints constraintsKey = new GridBagConstraints();
-					constraintsKey.anchor = GridBagConstraints.PAGE_START;
-					constraintsKey.gridx = 0;
-					constraintsKey.gridy = GridBagConstraints.RELATIVE;
-					constraintsKey.fill = GridBagConstraints.HORIZONTAL;
-					constraintsKey.weightx = 0;
-					GridBagConstraints constraintsValue = new GridBagConstraints();
-					constraintsValue.anchor = GridBagConstraints.PAGE_START;
-					constraintsValue.gridx = 1;
-					constraintsValue.gridy = GridBagConstraints.RELATIVE;
-					constraintsValue.fill = GridBagConstraints.HORIZONTAL;
-					constraintsValue.weightx = 1;
-					constraintsValue.insets = new Insets(0, 5, 0, 0);
-					conf.forEach((key, value) -> {
-						settingsPanel.add(new JLabel(key.toString()), constraintsKey);
-						settingsPanel.add(new JTextField(value.toString()), constraintsValue);
-					});
-
-					JPanel buttonsPanel = new JPanel(new GridLayout(1, 2));
-					buttonsPanel.add(new JButton(new AbstractAction("Save") {
-						@Override
-						public void actionPerformed(ActionEvent e) {
-							ctx.dialogController().showMessageDialog("Save");
-						}
-					}));
-					buttonsPanel.add(new JButton(new AbstractAction("Reset") {
-						@Override
-						public void actionPerformed(ActionEvent e) {
-							ctx.dialogController().showMessageDialog("Reset");
-						}
-					}));
-
-					JPanel panel = new JPanel(new BorderLayout());
-					panel.add(settingsPanel, BorderLayout.CENTER);
-					panel.add(buttonsPanel, BorderLayout.PAGE_END);
-
-					ctx.addTabCloseable(new JLabel("Settings"), new JScrollPane(panel,
-							JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
-				}, () -> {
-					ctx.dialogController().showMessageDialog("No conf available right now");
+				Configuration conf = ctx.configuration();
+				Properties props = conf.properties();
+				// TODO Make settings for each repo
+				// TODO Restart on repo change
+				// TODO Make settings as bound properties
+				// TODO Make settings updates in real time (x,y,width,height)
+				// TODO Keep save/reset? Replace by restart?
+				// TODO Listen on settings to reset suppliers and update GUI
+				JPanel settingsPanel = new JPanel(new GridBagLayout());
+				GridBagConstraints constraintsKey = new GridBagConstraints();
+				constraintsKey.anchor = GridBagConstraints.PAGE_START;
+				constraintsKey.gridx = 0;
+				constraintsKey.gridy = GridBagConstraints.RELATIVE;
+				constraintsKey.fill = GridBagConstraints.HORIZONTAL;
+				constraintsKey.weightx = 0;
+				GridBagConstraints constraintsValue = new GridBagConstraints();
+				constraintsValue.anchor = GridBagConstraints.PAGE_START;
+				constraintsValue.gridx = 1;
+				constraintsValue.gridy = GridBagConstraints.RELATIVE;
+				constraintsValue.fill = GridBagConstraints.HORIZONTAL;
+				constraintsValue.weightx = 1;
+				constraintsValue.insets = new Insets(0, 5, 0, 0);
+				props.forEach((key, value) -> {
+					settingsPanel.add(new JLabel(key.toString()), constraintsKey);
+					settingsPanel.add(new JTextField(value.toString()), constraintsValue);
 				});
+
+				JPanel buttonsPanel = new JPanel(new GridLayout(1, 2));
+				buttonsPanel.add(new JButton(new AbstractAction("Save") {
+					@Override
+					public void actionPerformed(ActionEvent e) {
+						ctx.dialogController().showMessageDialog("Save");
+					}
+				}));
+				buttonsPanel.add(new JButton(new AbstractAction("Reset") {
+					@Override
+					public void actionPerformed(ActionEvent e) {
+						ctx.dialogController().showMessageDialog("Reset");
+					}
+				}));
+
+				JPanel panel = new JPanel(new BorderLayout());
+				panel.add(settingsPanel, BorderLayout.CENTER);
+				panel.add(buttonsPanel, BorderLayout.PAGE_END);
+
+				ctx.addTabCloseable(new JLabel("Settings"), new JScrollPane(panel,
+						JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
 			});
 			fileMenu.add(settingsMenuItem);
 		}
@@ -398,31 +389,6 @@ public class Gui extends JFrame {
 		return () -> {
 			return value.updateAndGet(v -> v != null ? v : supplier.get());
 		};
-	}
-
-	private static ComponentAdapter onBoundsUpdate(Consumer<Rectangle> boundsConsumer) {
-		return new ComponentAdapter() {
-
-			@Override
-			public void componentResized(ComponentEvent event) {
-				updateBounds(event.getComponent().getBounds());
-			}
-
-			@Override
-			public void componentMoved(ComponentEvent event) {
-				updateBounds(event.getComponent().getBounds());
-			}
-
-			private void updateBounds(Rectangle bounds) {
-				boundsConsumer.accept(bounds);
-			}
-		};
-	}
-
-	private static void applyPropertyIfPresent(Properties frameConf, String key, Consumer<? super Integer> action) {
-		Optional.ofNullable(frameConf.getProperty(key))//
-				.map(Integer::parseInt)//
-				.ifPresent(action);
 	}
 
 	private static JComponent createCheckMailTab(CheckMailContext ctx) {
@@ -1092,8 +1058,9 @@ public class Gui extends JFrame {
 		private final Function<MailId, Source<Mail>> mailTracker;
 		private final Function<Source<Mail>, MailId> mailUntracker;
 		private final DateTimeFormatter dateTimeFormatter;
+		private final Configuration configuration;
 
-		public FrameContext(JFrame frame, DialogController dialogController,
+		public FrameContext(Configuration configuration, JFrame frame, DialogController dialogController,
 				Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier,
 				Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier,
 				Supplier<Optional<Repository.Updatable<QuestionId, Question>>> questionRepositorySupplier,
@@ -1107,6 +1074,11 @@ public class Gui extends JFrame {
 			this.mailTracker = mailTracker;
 			this.mailUntracker = mailUntracker;
 			this.dateTimeFormatter = dateTimeFormatter;
+			this.configuration = configuration;
+		}
+
+		public Configuration configuration() {
+			return configuration;
 		}
 
 		public DateTimeFormatter dateTimeFormatter() {
