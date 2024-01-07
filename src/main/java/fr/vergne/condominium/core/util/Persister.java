@@ -1,9 +1,9 @@
 package fr.vergne.condominium.core.util;
 
-public interface Persister {
+public interface Persister<T> {
 	boolean hasSave();
 
-	void save();
+	void save(T t);
 
-	void load();
+	T load();
 }

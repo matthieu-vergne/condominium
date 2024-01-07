@@ -13,12 +13,9 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
-import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.event.AWTEventListener;
 import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -34,7 +31,6 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
@@ -43,7 +39,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -55,6 +50,7 @@ import javax.swing.AbstractAction;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
@@ -70,6 +66,7 @@ import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.UIManager;
 import javax.swing.border.LineBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -93,6 +90,8 @@ import fr.vergne.condominium.core.util.Persister;
 import fr.vergne.condominium.core.util.RefinerIdSerializer;
 import fr.vergne.condominium.core.util.Serializer;
 import fr.vergne.condominium.gui.Configuration;
+import fr.vergne.condominium.gui.Configuration.Builder;
+import fr.vergne.condominium.gui.Configuration.MissingKeyException;
 import fr.vergne.condominium.gui.JMailPanel;
 import fr.vergne.condominium.gui.JMonitorableTitle;
 
@@ -100,28 +99,63 @@ import fr.vergne.condominium.gui.JMonitorableTitle;
 public class Gui extends JFrame {
 
 	public static void main(String[] args) {
-		new Gui().setVisible(true);
-	}
-
-	public Gui() {
-		Configuration configuration = new Configuration();
-		Persister confPersister = configuration.persistInFile(Path.of("condoGuiConfig.ini"));
+		Path confPath = Path.of("condoGuiConfig.ini");
+		Persister<Configuration> confPersister = Configuration.fromPropertiesFile(confPath);
+		Configuration configuration = null;
 		if (confPersister.hasSave()) {
-			confPersister.load();
+			try {
+				configuration = confPersister.load();
+			} catch (MissingKeyException cause) {
+				Persister<Configuration.Builder> partialPersister = Configuration
+						.fromIncompletePropertiesFile(confPath);
+				Configuration.Builder confBuilder = partialPersister.load();
+				configuration = feedConfBuilder(confBuilder);
+				confPersister.save(configuration);
+			}
+		} else {
+			Configuration.Builder confBuilder = new Configuration.Builder();
+			configuration = feedConfBuilder(confBuilder);
+			confPersister.save(configuration);
 		}
 
+		launchGui(configuration, confPersister);
+	}
+
+	private static void launchGui(Configuration configuration, Persister<Configuration> confPersister) {
+		new Gui(configuration, confPersister).setVisible(true);
+	}
+
+	private static Configuration feedConfBuilder(Configuration.Builder confBuilder) {
+		JPanel settingsPanel = createSettingsPanel(confBuilder);
+		int answer = JOptionPane.showConfirmDialog(null, settingsPanel, "Initialize settings",
+				JOptionPane.OK_CANCEL_OPTION);
+		if (answer == JOptionPane.CANCEL_OPTION) {
+			System.exit(0);
+			return null;// Inform compiler nothing occurs after System.exit()
+		}
+		Configuration configuration;
+		try {
+			configuration = confBuilder.build();
+		} catch (Exception cause2) {
+			JOptionPane.showMessageDialog(null, cause2.getLocalizedMessage(), "Invalid configuration",
+					JOptionPane.ERROR_MESSAGE);
+			System.exit(1);
+			return null;// Inform compiler nothing occurs after System.exit()
+		}
+		return configuration;
+	}
+
+	public Gui(Configuration configuration, Persister<Configuration> confPersister) {
 		// TODO Sync cache of each supplier: if repo is reset, others should be
-		Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier = cache(() -> {
-			String outFolderConf = configuration.properties().getProperty("outFolder");
-			System.out.println("Load mails from: " + outFolderConf);
-			Path outFolderPath = Paths.get(outFolderConf);
-			Path mailRepositoryPath = outFolderPath.resolve("mails");
+		Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier = cacheNonEmptyOptional(() -> {
+			Path mailRepositoryPath = configuration.mailsRepositoryPath();
+			System.out.println("Load mails from: " + mailRepositoryPath);
 			return Optional.of(Main.createMailRepository(mailRepositoryPath));
 		});
 		record Context(Serializer<Issue, String> issueSerializer, Serializer<Question, String> questionSerializer,
 				Function<MailId, Source<Mail>> mailTracker, Function<Source<Mail>, MailId> mailUntracker) {
 		}
-		Supplier<Optional<Context>> ctxSupplier = cache(() -> {
+		Supplier<Optional<Context>> ctxSupplier = cacheNonEmptyOptional(() -> {
 			return mailRepositorySupplier.get().flatMap(mailRepo -> {
 				Source.Tracker sourceTracker = Source.Tracker.create(Source::create, Source.Refiner::create);
 
@@ -174,35 +208,30 @@ public class Gui extends JFrame {
 				return new IllegalStateException("No mail untracker set");
 			});
 		};
-		Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier = cache(() -> {
+		Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier = cacheNonEmptyOptional(() -> {
 			System.out.println("Request issues");
 			return issueSerializerSupplier.get().flatMap(issueSerializer -> {
-				String outFolderConf = configuration.properties().getProperty("outFolder");
-				System.out.println("Load issues from: " + outFolderConf);
-				Path outFolderPath = Paths.get(outFolderConf);
-				Path issueRepositoryPath = outFolderPath.resolve("issues");
-
+				Path issueRepositoryPath = configuration.issuesRepositoryPath();
+				System.out.println("Load issues from: " + issueRepositoryPath);
 				Repository.Updatable<IssueId, Issue> issueRepository = Main.createIssueRepository(issueRepositoryPath,
 						issueSerializer);
 				return Optional.of(issueRepository);
 			});
 		});
-		Supplier<Optional<Updatable<QuestionId, Question>>> questionRepositorySupplier = cache(() -> {
+		Supplier<Optional<Updatable<QuestionId, Question>>> questionRepositorySupplier = cacheNonEmptyOptional(() -> {
 			System.out.println("Request questions");
 			return questionSerializerSupplier.get().flatMap(questionSerializer -> {
-				String outFolderConf = configuration.properties().getProperty("outFolder");
-				System.out.println("Load questions from: " + outFolderConf);
-				Path outFolderPath = Paths.get(outFolderConf);
-				Path issueRepositoryPath = outFolderPath.resolve("questions");
-
+				Path questionsRepositoryPath = configuration.questionsRepositoryPath();
+				System.out.println("Load questions from: " + questionsRepositoryPath);
 				Repository.Updatable<QuestionId, Question> questionRepository = Main
-						.createQuestionRepository(issueRepositoryPath, questionSerializer);
+						.createQuestionRepository(questionsRepositoryPath, questionSerializer);
 				return Optional.of(questionRepository);
 			});
 		});
 		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT);
-		FrameContext ctx = new FrameContext(configuration, this, new DialogController(this), mailRepositorySupplier,
-				issueRepositorySupplier, questionRepositorySupplier, mailTracker, mailUntracker, dateTimeFormatter);
+		FrameContext ctx = new FrameContext(configuration, confPersister, this, new DialogController(this),
+				mailRepositorySupplier, issueRepositorySupplier, questionRepositorySupplier, mailTracker, mailUntracker,
+				dateTimeFormatter);
 
 		JPanel footerPanel = createFooter(ctx);
 
@@ -217,34 +246,11 @@ public class Gui extends JFrame {
 
 		setTitle("Condominium");
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
 		pack();
 
-		// Apply conf after pack() to ensure it is applied
-		configuration.guiBounds().ifPresent(this::setBounds);
-		// Save after applying conf to not preliminary corrupt save with pack() events
-		this.addComponentListener(onBoundsUpdate(bounds -> {
-			configuration.setGuiBounds(bounds);
-			confPersister.save();
-		}));
-	}
-
-	private static ComponentAdapter onBoundsUpdate(Consumer<Rectangle> boundsConsumer) {
-		return new ComponentAdapter() {
-
-			@Override
-			public void componentResized(ComponentEvent event) {
-				updateBounds(event.getComponent().getBounds());
-			}
-
-			@Override
-			public void componentMoved(ComponentEvent event) {
-				updateBounds(event.getComponent().getBounds());
-			}
-
-			private void updateBounds(Rectangle bounds) {
-				boundsConsumer.accept(bounds);
-			}
-		};
+		// Set full screen
+		setExtendedState(JFrame.MAXIMIZED_BOTH);
 	}
 
 	private JMenuBar createMenuBar(FrameContext ctx) {
@@ -263,49 +269,30 @@ public class Gui extends JFrame {
 			 */
 			settingsMenuItem.addActionListener(event -> {
 				Configuration conf = ctx.configuration();
-				Properties props = conf.properties();
-				// TODO Make settings for each repo
-				// TODO Restart on repo change
-				// TODO Make settings as bound properties
-				// TODO Make settings updates in real time (x,y,width,height)
-				// TODO Keep save/reset? Replace by restart?
-				// TODO Listen on settings to reset suppliers and update GUI
-				JPanel settingsPanel = new JPanel(new GridBagLayout());
-				GridBagConstraints constraintsKey = new GridBagConstraints();
-				constraintsKey.anchor = GridBagConstraints.PAGE_START;
-				constraintsKey.gridx = 0;
-				constraintsKey.gridy = GridBagConstraints.RELATIVE;
-				constraintsKey.fill = GridBagConstraints.HORIZONTAL;
-				constraintsKey.weightx = 0;
-				GridBagConstraints constraintsValue = new GridBagConstraints();
-				constraintsValue.anchor = GridBagConstraints.PAGE_START;
-				constraintsValue.gridx = 1;
-				constraintsValue.gridy = GridBagConstraints.RELATIVE;
-				constraintsValue.fill = GridBagConstraints.HORIZONTAL;
-				constraintsValue.weightx = 1;
-				constraintsValue.insets = new Insets(0, 5, 0, 0);
-				props.forEach((key, value) -> {
-					settingsPanel.add(new JLabel(key.toString()), constraintsKey);
-					settingsPanel.add(new JTextField(value.toString()), constraintsValue);
-				});
+				Builder confBuilder = Configuration.Builder.fromConfiguration(conf);
+				JPanel settingsPanel = createSettingsPanel(confBuilder);
 
+				JButton applyButton = new JButton("Apply");
+				JButton resetButton = new JButton("Reset");
 				JPanel buttonsPanel = new JPanel(new GridLayout(1, 2));
-				buttonsPanel.add(new JButton(new AbstractAction("Save") {
-					@Override
-					public void actionPerformed(ActionEvent e) {
-						ctx.dialogController().showMessageDialog("Save");
-					}
-				}));
-				buttonsPanel.add(new JButton(new AbstractAction("Reset") {
-					@Override
-					public void actionPerformed(ActionEvent e) {
-						ctx.dialogController().showMessageDialog("Reset");
-					}
-				}));
+				buttonsPanel.add(applyButton);
+				buttonsPanel.add(resetButton);
 
 				JPanel panel = new JPanel(new BorderLayout());
 				panel.add(settingsPanel, BorderLayout.CENTER);
 				panel.add(buttonsPanel, BorderLayout.PAGE_END);
+
+				applyButton.addActionListener(event2 -> {
+					Configuration newConf = confBuilder.build();
+					Persister<Configuration> persister = ctx.configurationPersister();
+					ctx.frame.dispose();
+					persister.save(newConf);
+					launchGui(newConf, persister);
+				});
+				resetButton.addActionListener(event2 -> {
+					// TODO Reset fields
+					ctx.dialogController().showMessageDialog("Reset");
+				});
 
 				ctx.addTabCloseable(new JLabel("Settings"), new JScrollPane(panel,
 						JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
@@ -314,6 +301,93 @@ public class Gui extends JFrame {
 		}
 		fileMenu.add(createQuitMenuItem());
 		return fileMenu;
+	}
+
+	private static JPanel createSettingsPanel(Configuration.Builder conf) {
+		// TODO Feed builder
+		JPanel settingsPanel = new JPanel(new GridBagLayout());
+
+		GridBagConstraints constraintsTitle = new GridBagConstraints();
+		constraintsTitle.anchor = GridBagConstraints.PAGE_START;
+		constraintsTitle.gridx = 0;
+		constraintsTitle.gridy = GridBagConstraints.RELATIVE;
+		constraintsTitle.fill = GridBagConstraints.HORIZONTAL;
+		constraintsTitle.weightx = 1;
+		constraintsTitle.gridwidth = GridBagConstraints.REMAINDER;
+		constraintsTitle.insets = new Insets(10, 0, 10, 0);
+		class JTitle extends JLabel {
+			public JTitle(String title) {
+				super(title.toUpperCase());
+				setHorizontalAlignment(JLabel.CENTER);
+			}
+		}
+		Consumer<String> titleAdder = title -> {
+			settingsPanel.add(new JTitle(title), constraintsTitle);
+		};
+
+		GridBagConstraints constraintsKey = new GridBagConstraints();
+		constraintsKey.anchor = GridBagConstraints.PAGE_START;
+		constraintsKey.gridx = 0;
+		constraintsKey.gridy = GridBagConstraints.RELATIVE;
+		constraintsKey.fill = GridBagConstraints.HORIZONTAL;
+		constraintsKey.weightx = 0;
+		class JName extends JLabel {
+			public JName(String name) {
+				super(name);
+			}
+		}
+		GridBagConstraints constraintsValue = new GridBagConstraints();
+		constraintsValue.anchor = GridBagConstraints.PAGE_START;
+		constraintsValue.gridx = 1;
+		constraintsValue.gridy = GridBagConstraints.RELATIVE;
+		constraintsValue.fill = GridBagConstraints.HORIZONTAL;
+		constraintsValue.weightx = 1;
+		constraintsValue.insets = new Insets(0, 5, 0, 0);
+		class JPath extends JPanel {
+			public JPath(Optional<Path> path) {
+				String currentPath = path.map(Path::toString).orElse("");
+				JTextField pathField = new JTextField(currentPath) {
+					// Trick to avoid being squashed when empty
+					@Override
+					public Dimension getPreferredSize() {
+						return new Dimension(300, super.getPreferredSize().height);
+					}
+				};
+
+				JButton browseButton = new JButton(
+						new AbstractAction(null, UIManager.getIcon("FileView.directoryIcon")) {
+							@Override
+							public void actionPerformed(ActionEvent e) {
+								JFileChooser chooser = new JFileChooser(currentPath);
+								chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+								int choice = chooser.showOpenDialog(JPath.this);
+								if (choice == JFileChooser.APPROVE_OPTION) {
+									Path newPath = chooser.getSelectedFile().toPath();
+									pathField.setText(newPath.toString());
+								}
+							}
+						});
+				browseButton.setMargin(new Insets(0, 0, 0, 0));
+				browseButton.setBorder(null);
+				browseButton.setOpaque(false);
+
+				setLayout(new BorderLayout());
+				add(pathField, BorderLayout.CENTER);
+				add(browseButton, BorderLayout.LINE_END);
+			}
+		}
+		BiConsumer<String, JComponent> settingAdder = (name, valueComponent) -> {
+			settingsPanel.add(new JName(name), constraintsKey);
+			settingsPanel.add(valueComponent, constraintsValue);
+		};
+
+		titleAdder.accept("Repository paths");
+		settingAdder.accept("Mails repository path", new JPath(Optional.ofNullable(conf.mailsRepositoryPath())));
+		settingAdder.accept("Issues repository path", new JPath(Optional.ofNullable(conf.issuesRepositoryPath())));
+		settingAdder.accept("Questions repository path",
+				new JPath(Optional.ofNullable(conf.questionsRepositoryPath())));
+
+		return settingsPanel;
 	}
 
 	private JMenuItem createQuitMenuItem() {
@@ -384,10 +458,10 @@ public class Gui extends JFrame {
 		return logsButton;
 	}
 
-	private static <T> Supplier<T> cache(Supplier<T> supplier) {
-		AtomicReference<T> value = new AtomicReference<>();
+	private static <T> Supplier<Optional<T>> cacheNonEmptyOptional(Supplier<Optional<T>> supplier) {
+		AtomicReference<Optional<T>> value = new AtomicReference<>();
 		return () -> {
-			return value.updateAndGet(v -> v != null ? v : supplier.get());
+			return value.updateAndGet(v -> v != null && !v.isEmpty() ? v : supplier.get());
 		};
 	}
 
@@ -1059,9 +1133,10 @@ public class Gui extends JFrame {
 		private final Function<Source<Mail>, MailId> mailUntracker;
 		private final DateTimeFormatter dateTimeFormatter;
 		private final Configuration configuration;
+		private final Persister<Configuration> confPersister;
 
-		public FrameContext(Configuration configuration, JFrame frame, DialogController dialogController,
-				Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier,
+		public FrameContext(Configuration configuration, Persister<Configuration> confPersister, JFrame frame,
+				DialogController dialogController, Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier,
 				Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier,
 				Supplier<Optional<Repository.Updatable<QuestionId, Question>>> questionRepositorySupplier,
 				Function<MailId, Source<Mail>> mailTracker, Function<Source<Mail>, MailId> mailUntracker,
@@ -1075,10 +1150,15 @@ public class Gui extends JFrame {
 			this.mailUntracker = mailUntracker;
 			this.dateTimeFormatter = dateTimeFormatter;
 			this.configuration = configuration;
+			this.confPersister = confPersister;
 		}
 
 		public Configuration configuration() {
 			return configuration;
+		}
+
+		public Persister<Configuration> configurationPersister() {
+			return confPersister;
 		}
 
 		public DateTimeFormatter dateTimeFormatter() {
@@ -1114,8 +1194,10 @@ public class Gui extends JFrame {
 			tabbedPane.add(tabContent);
 			int tabIndex = tabbedPane.getTabCount() - 1;
 
-			JButton tabClose = new JButton("x");
+			JButton tabClose = new JButton(UIManager.getIcon("InternalFrame.closeIcon"));
 			tabClose.setMargin(new Insets(0, 0, 0, 0));
+			tabClose.setBorder(null);
+			tabClose.setOpaque(false);
 			tabClose.addActionListener(event -> tabbedPane.remove(tabIndex));
 
 			JPanel tabPanel = new JPanel(new BorderLayout(5, 0));
