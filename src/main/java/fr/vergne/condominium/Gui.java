@@ -25,6 +25,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -40,7 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeSet;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -81,8 +81,8 @@ import fr.vergne.condominium.core.monitorable.Monitorable.History;
 import fr.vergne.condominium.core.monitorable.Question;
 import fr.vergne.condominium.core.parser.yaml.IssueYamlSerializer;
 import fr.vergne.condominium.core.parser.yaml.QuestionYamlSerializer;
+import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.Repository;
-import fr.vergne.condominium.core.repository.Repository.Updatable;
 import fr.vergne.condominium.core.source.Source;
 import fr.vergne.condominium.core.source.Source.Refiner;
 import fr.vergne.condominium.core.source.Source.Track;
@@ -147,91 +147,42 @@ public class Gui extends JFrame {
 
 	public Gui(Configuration configuration, Persister<Configuration> confPersister) {
 		// TODO Sync cache of each supplier: if repo is reset, others should be
-		Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier = cacheNonEmptyOptional(() -> {
-			Path mailRepositoryPath = configuration.mailsRepositoryPath();
-			System.out.println("Load mails from: " + mailRepositoryPath);
-			return Optional.of(Main.createMailRepository(mailRepositoryPath));
-		});
-		record Context(Serializer<Issue, String> issueSerializer, Serializer<Question, String> questionSerializer,
-				Function<MailId, Source<Mail>> mailTracker, Function<Source<Mail>, MailId> mailUntracker) {
-		}
-		Supplier<Optional<Context>> ctxSupplier = cacheNonEmptyOptional(() -> {
-			return mailRepositorySupplier.get().flatMap(mailRepo -> {
-				Source.Tracker sourceTracker = Source.Tracker.create(Source::create, Source.Refiner::create);
+		Path mailRepositoryPath = configuration.mailsRepositoryPath();
+		FileRepository<MailId, Mail> mailRepository = Main.createMailRepository(mailRepositoryPath);
 
-				Source<Repository<MailId, Mail>> mailRepoSource = sourceTracker.createSource(mailRepo);
-				Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner = sourceTracker
-						.createRefiner(Repository<MailId, Mail>::mustGet);
+		Source.Tracker sourceTracker = Source.Tracker.create(Source::create, Source.Refiner::create);
 
-				Function<MailId, Source<Mail>> mailTracker = mailId -> {
-					return mailRepoSource.refine(mailRefiner, mailId);
-				};
-				Function<Source<Mail>, MailId> mailUntracker = source -> {
-					@SuppressWarnings("unchecked")
-					Track.Refined<MailId> track = (Track.Refined<MailId>) sourceTracker.trackOf(source);
-					return track.refinedId();
-				};
-
-				Serializer<Source<?>, String> sourceSerializer = Serializer
-						.createFromMap(Map.of(mailRepoSource, "mails"));
-				Serializer<Refiner<?, ?, ?>, String> refinerSerializer = Serializer
-						.createFromMap(Map.of(mailRefiner, "id"));
-				RefinerIdSerializer refinerIdSerializer = Main.createRefinerIdSerializer(mailRefiner);
-				Serializer<Issue, String> issueSerializer = IssueYamlSerializer.create(sourceTracker::trackOf,
-						sourceSerializer, refinerSerializer, refinerIdSerializer);
-				Serializer<Question, String> questionSerializer = QuestionYamlSerializer.create(sourceTracker::trackOf,
-						sourceSerializer, refinerSerializer, refinerIdSerializer);
-
-				return Optional.of(new Context(issueSerializer, questionSerializer, mailTracker, mailUntracker));
-			});
-		});
-		Supplier<Optional<Serializer<Issue, String>>> issueSerializerSupplier = () -> ctxSupplier.get()
-				.map(Context::issueSerializer);
-		Supplier<Optional<Serializer<Question, String>>> questionSerializerSupplier = () -> ctxSupplier.get()
-				.map(Context::questionSerializer);
-		Supplier<Optional<Function<MailId, Source<Mail>>>> mailTrackerSupplier = () -> ctxSupplier.get()
-				.map(Context::mailTracker);
-		Supplier<Optional<Function<Source<Mail>, MailId>>> mailUntrackerSupplier = () -> ctxSupplier.get()
-				.map(Context::mailUntracker);
-
+		Source<Repository<MailId, Mail>> mailRepoSource = sourceTracker.createSource(mailRepository);
+		Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner = sourceTracker
+				.createRefiner(Repository<MailId, Mail>::mustGet);
 		Function<MailId, Source<Mail>> mailTracker = mailId -> {
-			return mailTrackerSupplier.get().map(tracker -> {
-				return tracker.apply(mailId);
-			}).orElseThrow(() -> {
-				return new IllegalStateException("No mail tracker set");
-			});
+			return mailRepoSource.refine(mailRefiner, mailId);
 		};
 		Function<Source<Mail>, MailId> mailUntracker = source -> {
-			return mailUntrackerSupplier.get().map(tracker -> {
-				return tracker.apply(source);
-			}).orElseThrow(() -> {
-				return new IllegalStateException("No mail untracker set");
-			});
+			@SuppressWarnings("unchecked")
+			Track.Refined<MailId> track = (Track.Refined<MailId>) sourceTracker.trackOf(source);
+			return track.refinedId();
 		};
-		Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier = cacheNonEmptyOptional(() -> {
-			System.out.println("Request issues");
-			return issueSerializerSupplier.get().flatMap(issueSerializer -> {
-				Path issueRepositoryPath = configuration.issuesRepositoryPath();
-				System.out.println("Load issues from: " + issueRepositoryPath);
-				Repository.Updatable<IssueId, Issue> issueRepository = Main.createIssueRepository(issueRepositoryPath,
-						issueSerializer);
-				return Optional.of(issueRepository);
-			});
-		});
-		Supplier<Optional<Updatable<QuestionId, Question>>> questionRepositorySupplier = cacheNonEmptyOptional(() -> {
-			System.out.println("Request questions");
-			return questionSerializerSupplier.get().flatMap(questionSerializer -> {
-				Path questionsRepositoryPath = configuration.questionsRepositoryPath();
-				System.out.println("Load questions from: " + questionsRepositoryPath);
-				Repository.Updatable<QuestionId, Question> questionRepository = Main
-						.createQuestionRepository(questionsRepositoryPath, questionSerializer);
-				return Optional.of(questionRepository);
-			});
-		});
+
+		Serializer<Source<?>, String> sourceSerializer = Serializer.createFromMap(Map.of(mailRepoSource, "mails"));
+		Serializer<Refiner<?, ?, ?>, String> refinerSerializer = Serializer.createFromMap(Map.of(mailRefiner, "id"));
+		RefinerIdSerializer refinerIdSerializer = Main.createRefinerIdSerializer(mailRefiner);
+
+		Path issueRepositoryPath = configuration.issuesRepositoryPath();
+		Serializer<Issue, String> issueSerializer = IssueYamlSerializer.create(sourceTracker::trackOf, sourceSerializer,
+				refinerSerializer, refinerIdSerializer);
+		Repository.Updatable<IssueId, Issue> issueRepository = Main.createIssueRepository(issueRepositoryPath,
+				issueSerializer);
+
+		Path questionsRepositoryPath = configuration.questionsRepositoryPath();
+		Serializer<Question, String> questionSerializer = QuestionYamlSerializer.create(sourceTracker::trackOf,
+				sourceSerializer, refinerSerializer, refinerIdSerializer);
+		Repository.Updatable<QuestionId, Question> questionRepository = Main
+				.createQuestionRepository(questionsRepositoryPath, questionSerializer);
+
 		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT);
 		FrameContext ctx = new FrameContext(configuration, confPersister, this, new DialogController(this),
-				mailRepositorySupplier, issueRepositorySupplier, questionRepositorySupplier, mailTracker, mailUntracker,
-				dateTimeFormatter);
+				mailRepository, issueRepository, questionRepository, mailTracker, mailUntracker, dateTimeFormatter);
 
 		JPanel footerPanel = createFooter(ctx);
 
@@ -272,11 +223,9 @@ public class Gui extends JFrame {
 				Builder confBuilder = Configuration.Builder.fromConfiguration(conf);
 				JPanel settingsPanel = createSettingsPanel(confBuilder);
 
-				JButton applyButton = new JButton("Apply");
-				JButton resetButton = new JButton("Reset");
-				JPanel buttonsPanel = new JPanel(new GridLayout(1, 2));
+				JButton applyButton = new JButton("Apply & Restart");
+				JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
 				buttonsPanel.add(applyButton);
-				buttonsPanel.add(resetButton);
 
 				JPanel panel = new JPanel(new BorderLayout());
 				panel.add(settingsPanel, BorderLayout.CENTER);
@@ -289,10 +238,6 @@ public class Gui extends JFrame {
 					persister.save(newConf);
 					launchGui(newConf, persister);
 				});
-				resetButton.addActionListener(event2 -> {
-					// TODO Reset fields
-					ctx.dialogController().showMessageDialog("Reset");
-				});
 
 				ctx.addTabCloseable(new JLabel("Settings"), new JScrollPane(panel,
 						JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER));
@@ -303,8 +248,7 @@ public class Gui extends JFrame {
 		return fileMenu;
 	}
 
-	private static JPanel createSettingsPanel(Configuration.Builder conf) {
-		// TODO Feed builder
+	private static JPanel createSettingsPanel(Configuration.Builder confBuilder) {
 		JPanel settingsPanel = new JPanel(new GridBagLayout());
 
 		GridBagConstraints constraintsTitle = new GridBagConstraints();
@@ -344,9 +288,8 @@ public class Gui extends JFrame {
 		constraintsValue.weightx = 1;
 		constraintsValue.insets = new Insets(0, 5, 0, 0);
 		class JPath extends JPanel {
-			public JPath(Optional<Path> path) {
-				String currentPath = path.map(Path::toString).orElse("");
-				JTextField pathField = new JTextField(currentPath) {
+			public JPath(Supplier<Path> pathSupplier, Consumer<Path> pathConsumer) {
+				JTextField pathField = new JTextField() {
 					// Trick to avoid being squashed when empty
 					@Override
 					public Dimension getPreferredSize() {
@@ -354,22 +297,23 @@ public class Gui extends JFrame {
 					}
 				};
 
-				JButton browseButton = new JButton(
-						new AbstractAction(null, UIManager.getIcon("FileView.directoryIcon")) {
-							@Override
-							public void actionPerformed(ActionEvent e) {
-								JFileChooser chooser = new JFileChooser(currentPath);
-								chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-								int choice = chooser.showOpenDialog(JPath.this);
-								if (choice == JFileChooser.APPROVE_OPTION) {
-									Path newPath = chooser.getSelectedFile().toPath();
-									pathField.setText(newPath.toString());
-								}
-							}
-						});
+				Consumer<Path> pathApplier = path -> {
+					pathConsumer.accept(path);
+					pathField.setText(Optional.ofNullable(path).map(Path::toString).orElse(""));
+				};
+				pathApplier.accept(pathSupplier.get());
+
+				JButton browseButton = new JButton(UIManager.getIcon("FileView.directoryIcon"));
 				browseButton.setMargin(new Insets(0, 0, 0, 0));
-				browseButton.setBorder(null);
-				browseButton.setOpaque(false);
+				JFileChooser chooser = new JFileChooser();
+				chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+				browseButton.addActionListener(event -> {
+					chooser.setCurrentDirectory(new File(pathField.getText()));
+					int choice = chooser.showOpenDialog(JPath.this);
+					if (choice == JFileChooser.APPROVE_OPTION) {
+						pathApplier.accept(chooser.getSelectedFile().toPath());
+					}
+				});
 
 				setLayout(new BorderLayout());
 				add(pathField, BorderLayout.CENTER);
@@ -382,10 +326,13 @@ public class Gui extends JFrame {
 		};
 
 		titleAdder.accept("Repository paths");
-		settingAdder.accept("Mails repository path", new JPath(Optional.ofNullable(conf.mailsRepositoryPath())));
-		settingAdder.accept("Issues repository path", new JPath(Optional.ofNullable(conf.issuesRepositoryPath())));
+		settingAdder.accept("Mails repository path",
+				new JPath(confBuilder::mailsRepositoryPath, confBuilder::setMailsRepositoryPath));
+		settingAdder.accept("Issues repository path",
+				new JPath(confBuilder::issuesRepositoryPath, confBuilder::setIssuesRepositoryPath));
 		settingAdder.accept("Questions repository path",
-				new JPath(Optional.ofNullable(conf.questionsRepositoryPath())));
+				new JPath(confBuilder::questionsRepositoryPath, confBuilder::setQuestionsRepositoryPath));
+		// TODO Feed builder
 
 		return settingsPanel;
 	}
@@ -456,13 +403,6 @@ public class Gui extends JFrame {
 		});
 
 		return logsButton;
-	}
-
-	private static <T> Supplier<Optional<T>> cacheNonEmptyOptional(Supplier<Optional<T>> supplier) {
-		AtomicReference<Optional<T>> value = new AtomicReference<>();
-		return () -> {
-			return value.updateAndGet(v -> v != null && !v.isEmpty() ? v : supplier.get());
-		};
 	}
 
 	private static JComponent createCheckMailTab(CheckMailContext ctx) {
@@ -962,28 +902,30 @@ public class Gui extends JFrame {
 			support.removePropertyChangeListener(listener);
 		}
 
+		// FIXME Remove since repo is a constant
 		public static final String MAIL_REPOSITORY = "mailRepository";
 		private Optional<Repository<MailId, Mail>> mailRepository = Optional.empty();
 
 		public Optional<Repository<MailId, Mail>> mailRepository() {
 			if (mailRepository.isEmpty()) {
-				replaceMailRepository(frameContext.mailRepository());
+				replaceMailRepository(Optional.of(frameContext.mailRepository()));
 			}
 			return mailRepository;
 		}
 
-		public void replaceMailRepository(Optional<Repository<MailId, Mail>> newRepository) {
+		private void replaceMailRepository(Optional<Repository<MailId, Mail>> newRepository) {
 			Optional<Repository<MailId, Mail>> oldRepository = this.mailRepository;
 			this.mailRepository = newRepository;
 			support.firePropertyChange(MAIL_REPOSITORY, oldRepository, newRepository);
 		}
 
+		// FIXME Remove since repo is a constant
 		public static final String ISSUE_REPOSITORY = "issueRepository";
 		private Optional<Repository.Updatable<IssueId, Issue>> issueRepository = Optional.empty();
 
 		public Optional<Repository.Updatable<IssueId, Issue>> issueRepository() {
 			if (issueRepository.isEmpty()) {
-				replaceIssueRepository(frameContext.issueRepository());
+				replaceIssueRepository(Optional.of(frameContext.issueRepository()));
 			}
 			return issueRepository;
 		}
@@ -994,12 +936,13 @@ public class Gui extends JFrame {
 			support.firePropertyChange(ISSUE_REPOSITORY, oldRepository, newRepository);
 		}
 
+		// FIXME Remove since repo is a constant
 		public static final String QUESTION_REPOSITORY = "questionRepository";
 		private Optional<Repository.Updatable<QuestionId, Question>> questionRepository = Optional.empty();
 
 		public Optional<Repository.Updatable<QuestionId, Question>> questionRepository() {
 			if (questionRepository.isEmpty()) {
-				replaceQuestionRepository(frameContext.questionRepository());
+				replaceQuestionRepository(Optional.of(frameContext.questionRepository()));
 			}
 			return questionRepository;
 		}
@@ -1126,9 +1069,9 @@ public class Gui extends JFrame {
 
 		private final JFrame frame;
 		private final DialogController dialogController;
-		private final Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier;
-		private final Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier;
-		private final Supplier<Optional<Repository.Updatable<QuestionId, Question>>> questionRepositorySupplier;
+		private final Repository<MailId, Mail> mailRepository;
+		private final Repository.Updatable<IssueId, Issue> issueRepository;
+		private final Repository.Updatable<QuestionId, Question> questionRepository;
 		private final Function<MailId, Source<Mail>> mailTracker;
 		private final Function<Source<Mail>, MailId> mailUntracker;
 		private final DateTimeFormatter dateTimeFormatter;
@@ -1136,15 +1079,15 @@ public class Gui extends JFrame {
 		private final Persister<Configuration> confPersister;
 
 		public FrameContext(Configuration configuration, Persister<Configuration> confPersister, JFrame frame,
-				DialogController dialogController, Supplier<Optional<Repository<MailId, Mail>>> mailRepositorySupplier,
-				Supplier<Optional<Repository.Updatable<IssueId, Issue>>> issueRepositorySupplier,
-				Supplier<Optional<Repository.Updatable<QuestionId, Question>>> questionRepositorySupplier,
+				DialogController dialogController, Repository<MailId, Mail> mailRepository,
+				Repository.Updatable<IssueId, Issue> issueRepository,
+				Repository.Updatable<QuestionId, Question> questionRepository,
 				Function<MailId, Source<Mail>> mailTracker, Function<Source<Mail>, MailId> mailUntracker,
 				DateTimeFormatter dateTimeFormatter) {
 			this.dialogController = dialogController;
-			this.mailRepositorySupplier = mailRepositorySupplier;
-			this.issueRepositorySupplier = issueRepositorySupplier;
-			this.questionRepositorySupplier = questionRepositorySupplier;
+			this.mailRepository = mailRepository;
+			this.issueRepository = issueRepository;
+			this.questionRepository = questionRepository;
 			this.frame = frame;
 			this.mailTracker = mailTracker;
 			this.mailUntracker = mailUntracker;
@@ -1177,16 +1120,16 @@ public class Gui extends JFrame {
 			return dialogController;
 		}
 
-		public Optional<Repository<MailId, Mail>> mailRepository() {
-			return mailRepositorySupplier.get();
+		public Repository<MailId, Mail> mailRepository() {
+			return mailRepository;
 		}
 
-		public Optional<Repository.Updatable<IssueId, Issue>> issueRepository() {
-			return issueRepositorySupplier.get();
+		public Repository.Updatable<IssueId, Issue> issueRepository() {
+			return issueRepository;
 		}
 
-		public Optional<Repository.Updatable<QuestionId, Question>> questionRepository() {
-			return questionRepositorySupplier.get();
+		public Repository.Updatable<QuestionId, Question> questionRepository() {
+			return questionRepository;
 		}
 
 		public void addTabCloseable(JComponent tabTitle, JComponent tabContent) {
