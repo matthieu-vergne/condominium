@@ -773,6 +773,7 @@ public class Gui extends JFrame {
 			Repository.Updatable<I, M> repository) {
 		JToggleButton stateButton = new JToggleButton(title);
 		stateButton.setMargin(buttonInsets);
+		stateButton.setToolTipText(state.toString());
 		stateButton.addActionListener(event -> {
 			ctx.mailId().ifPresent(mailId -> {
 				ctx.mail().ifPresentOrElse(mail -> {
