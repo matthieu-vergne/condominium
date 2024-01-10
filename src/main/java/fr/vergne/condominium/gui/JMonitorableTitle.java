@@ -3,8 +3,6 @@ package fr.vergne.condominium.gui;
 import java.awt.CardLayout;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.util.Optional;
-import java.util.function.Supplier;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -22,8 +20,8 @@ public class JMonitorableTitle extends JPanel {
 	private final JLabel immutableTitle;
 	private final JTextField mutableTitle;
 
-	public <I, M extends Monitorable<S>, S> JMonitorableTitle(
-			Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier, I monitorableId, M monitorable) {
+	public <I, M extends Monitorable<S>, S> JMonitorableTitle(Repository.Updatable<I, M> repository, I monitorableId,
+			M monitorable) {
 		cardLayout = new CardLayout();
 		this.setLayout(cardLayout);
 
@@ -47,14 +45,10 @@ public class JMonitorableTitle extends JPanel {
 						// Nothing has changed, just switch back
 						showImmutable();
 					} else {
-						repositorySupplier.get().ifPresentOrElse(repo -> {
-							monitorable.setTitle(newTitle);
-							repo.update(monitorableId, monitorable);
-							immutableTitle.setText(newTitle);
-							showImmutable();
-						}, () -> {
-							throw new IllegalStateException("No issue repository, cannot change title");
-						});
+						monitorable.setTitle(newTitle);
+						repository.update(monitorableId, monitorable);
+						immutableTitle.setText(newTitle);
+						showImmutable();
 					}
 				}
 				// Ignore and switch back to immutable upon ESCAPE

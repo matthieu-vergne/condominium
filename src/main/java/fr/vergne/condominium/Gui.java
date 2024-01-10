@@ -39,6 +39,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
@@ -413,7 +414,7 @@ public class Gui extends JFrame {
 		panel.add(monitorableTabs);
 
 		{
-			Supplier<Optional<Repository.Updatable<IssueId, Issue>>> repoSupplier = ctx::issueRepository;
+			Repository.Updatable<IssueId, Issue> repo = ctx.frameContext().issueRepository();
 			Monitorable.Factory<Issue, Issue.State> factory = Issue::create;
 			List<Issue.State> states = Arrays.asList(Issue.State.values());
 			Map<Issue.State, String> issueStateIcons = Map.of(//
@@ -425,10 +426,10 @@ public class Gui extends JFrame {
 					Issue.State.RESOLVING, "🔨", // ⛏⚒🔨
 					Issue.State.RESOLVED, "✔"// ☑✅✓✔
 			);
-			monitorableTabs.add("Issues", createMonitorableArea(ctx, repoSupplier, factory, states, issueStateIcons));
+			monitorableTabs.add("Issues", createMonitorableArea(ctx, repo, factory, states, issueStateIcons));
 		}
 		{
-			Supplier<Optional<Repository.Updatable<QuestionId, Question>>> repoSupplier = ctx::questionRepository;
+			Repository.Updatable<QuestionId, Question> repo = ctx.frameContext().questionRepository();
 			Monitorable.Factory<Question, Question.State> factory = Question::create;
 			List<Question.State> states = Arrays.asList(Question.State.values());
 			Map<Question.State, String> stateIcons = Map.of(//
@@ -437,34 +438,39 @@ public class Gui extends JFrame {
 					Question.State.REQUEST, "?", // ⚡✋👀👁📢📣🚨🕬
 					Question.State.ANSWER, "✔"// ☑✅✓✔
 			);
-			monitorableTabs.add("Questions", createMonitorableArea(ctx, repoSupplier, factory, states, stateIcons));
+			monitorableTabs.add("Questions", createMonitorableArea(ctx, repo, factory, states, stateIcons));
 		}
 
 		return panel;
 	}
 
 	private static <S, I, M extends Monitorable<S>> JComponent createMonitorableArea(CheckMailContext ctx,
-			Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier,
-			Monitorable.Factory<M, S> monitorableFactory, List<S> states, Map<S, String> stateIcons) {
+			Repository.Updatable<I, M> repository, Monitorable.Factory<M, S> monitorableFactory, List<S> states,
+			Map<S, String> stateIcons) {
 		JPanel listPanel = new JPanel();
 		BiConsumer<I, M> rowAdder;
 		{
 			rowAdder = (issueId, issue) -> {
 				// TODO Use row sorter
-				listPanel.add(createMonitorableRow(ctx, issueId, issue, repositorySupplier, states, stateIcons));
+				listPanel.add(createMonitorableRow(ctx, issueId, issue, repository, states, stateIcons));
 			};
 			listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.PAGE_AXIS));
-			ctx.addPropertyChangeListener(event -> {
-				if (event.getPropertyName().equals(CheckMailContext.MAIL_REPOSITORY)) {
-					repositorySupplier.get().ifPresent(repo -> {
-						listPanel.removeAll();
-						repo.stream().forEach(entry -> {
-							rowAdder.accept(entry.getKey(), entry.getValue());
-						});
-						listPanel.revalidate();
-					});
+			new SwingWorker<Void, Map.Entry<I, M>>() {
+
+				@Override
+				protected Void doInBackground() throws Exception {
+					repository.stream().forEach(this::publish);
+					return null;
 				}
-			});
+
+				@Override
+				protected void process(List<Entry<I, M>> entries) {
+					entries.forEach(entry -> {
+						rowAdder.accept(entry.getKey(), entry.getValue());
+					});
+					listPanel.revalidate();
+				}
+			}.execute();
 		}
 
 		JPanel addPanel = new JPanel();
@@ -474,8 +480,7 @@ public class Gui extends JFrame {
 
 			newMonitorableButton.setEnabled(false);
 			newMonitorableTitle.getDocument().addDocumentListener(onAnyUpdate(event -> {
-				newMonitorableButton
-						.setEnabled(!newMonitorableTitle.getText().isBlank() && repositorySupplier.get().isPresent());
+				newMonitorableButton.setEnabled(!newMonitorableTitle.getText().isBlank());
 			}));
 
 			Runnable monitorableCreator = () -> {
@@ -484,17 +489,13 @@ public class Gui extends JFrame {
 					throw new IllegalStateException("No title, button should be disabled");
 				}
 
-				repositorySupplier.get().ifPresentOrElse(repo -> {
-					ZonedDateTime dateTime = ZonedDateTime.now();
-					History<S> history = History.createEmpty();
-					M monitorable = monitorableFactory.createMonitorable(monitorableTitle, dateTime, history);
-					I id = repo.add(monitorable);
-					rowAdder.accept(id, monitorable);
-					newMonitorableTitle.setText("");
-					listPanel.revalidate();
-				}, () -> {
-					throw new IllegalStateException("No repository, button should be disabled");
-				});
+				ZonedDateTime dateTime = ZonedDateTime.now();
+				History<S> history = History.createEmpty();
+				M monitorable = monitorableFactory.createMonitorable(monitorableTitle, dateTime, history);
+				I id = repository.add(monitorable);
+				rowAdder.accept(id, monitorable);
+				newMonitorableTitle.setText("");
+				listPanel.revalidate();
 			};
 			newMonitorableButton.addActionListener(event -> monitorableCreator.run());
 			newMonitorableTitle.addKeyListener(new KeyAdapter() {
@@ -544,8 +545,8 @@ public class Gui extends JFrame {
 	}
 
 	private static <S, I, M extends Monitorable<S>> JComponent createMonitorableRow(CheckMailContext ctx,
-			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier,
-			List<S> states, Map<S, String> stateIcons) {
+			I monitorableId, M monitorable, Repository.Updatable<I, M> repository, List<S> states,
+			Map<S, String> stateIcons) {
 		JPanel monitorableRow = new JPanel() {
 			// Trick to avoid the panel to grow in height as much as it can.
 			// Partially inspired from: https://stackoverflow.com/a/55345497
@@ -563,7 +564,7 @@ public class Gui extends JFrame {
 			constraints.gridy = 0;
 			constraints.fill = GridBagConstraints.HORIZONTAL;
 			constraints.weightx = 1;
-			monitorableRow.add(createMonitorableTitle(ctx, monitorableId, monitorable, repositorySupplier, stateIcons),
+			monitorableRow.add(createMonitorableTitle(ctx, monitorableId, monitorable, repository, stateIcons),
 					constraints);
 		}
 
@@ -574,7 +575,7 @@ public class Gui extends JFrame {
 			constraints.fill = GridBagConstraints.NONE;
 			states.forEach(state -> {
 				monitorableRow.add(createMonitorableStateButton(ctx, monitorableId, monitorable, state,
-						stateIcons.get(state), buttonInsets, repositorySupplier), constraints);
+						stateIcons.get(state), buttonInsets, repository), constraints);
 			});
 		}
 
@@ -590,14 +591,12 @@ public class Gui extends JFrame {
 	}
 
 	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableTitle(CheckMailContext ctx,
-			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier,
-			Map<S, String> stateIcons) {
+			I monitorableId, M monitorable, Repository.Updatable<I, M> repository, Map<S, String> stateIcons) {
 
-		JMonitorableTitle monitorableTitle = new JMonitorableTitle(repositorySupplier, monitorableId, monitorable);
+		JMonitorableTitle monitorableTitle = new JMonitorableTitle(repository, monitorableId, monitorable);
 
 		Runnable detailsDisplayer = () -> {
-			JComponent component = createMonitorableDetails(ctx, monitorableId, monitorable, repositorySupplier,
-					stateIcons);
+			JComponent component = createMonitorableDetails(ctx, monitorableId, monitorable, repository, stateIcons);
 			JLabel tabTitle = new JLabel(monitorable.title());
 			monitorable.observeTitle((oldTitle, newTitle) -> tabTitle.setText(newTitle));
 			ctx.frameContext().addTabCloseable(tabTitle, component);
@@ -649,8 +648,7 @@ public class Gui extends JFrame {
 	}
 
 	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableDetails(CheckMailContext ctx,
-			I monitorableId, M monitorable, Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier,
-			Map<S, String> stateIcons) {
+			I monitorableId, M monitorable, Repository.Updatable<I, M> repository, Map<S, String> stateIcons) {
 		JPanel sourcePanel = new JPanel(new GridLayout(1, 1));
 		Consumer<Source<?>> sourceUpdater = source -> {
 			@SuppressWarnings("unchecked")
@@ -662,8 +660,8 @@ public class Gui extends JFrame {
 			sourcePanel.revalidate();
 		};
 
-		JComponent monitorableArea = createMonitorableArea2(ctx, repositorySupplier, monitorableId, monitorable,
-				stateIcons, sourceUpdater);
+		JComponent monitorableArea = createMonitorableArea2(ctx, repository, monitorableId, monitorable, stateIcons,
+				sourceUpdater);
 
 		JPanel panel = new JPanel();
 		panel.setLayout(new GridLayout(1, 2));
@@ -687,9 +685,9 @@ public class Gui extends JFrame {
 	}
 
 	private static <I, M extends Monitorable<S>, S> JComponent createMonitorableArea2(CheckMailContext ctx,
-			Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier, I monitorableId, M monitorable,
-			Map<S, String> stateIcons, Consumer<Source<?>> sourceUpdater) {
-		JMonitorableTitle monitorableTitle = new JMonitorableTitle(repositorySupplier, monitorableId, monitorable);
+			Repository.Updatable<I, M> repository, I monitorableId, M monitorable, Map<S, String> stateIcons,
+			Consumer<Source<?>> sourceUpdater) {
+		JMonitorableTitle monitorableTitle = new JMonitorableTitle(repository, monitorableId, monitorable);
 		monitorableTitle.addMouseListener(new MouseAdapter() {
 			public void mouseClicked(MouseEvent event) {
 				if (event.getButton() == MouseEvent.BUTTON1 && event.getClickCount() == 2) {
@@ -772,24 +770,20 @@ public class Gui extends JFrame {
 
 	private static <S, I, M extends Monitorable<S>> JToggleButton createMonitorableStateButton(CheckMailContext ctx,
 			I monitorableId, M monitorable, S state, String title, Insets buttonInsets,
-			Supplier<Optional<Repository.Updatable<I, M>>> repositorySupplier) {
+			Repository.Updatable<I, M> repository) {
 		JToggleButton stateButton = new JToggleButton(title);
 		stateButton.setMargin(buttonInsets);
 		stateButton.addActionListener(event -> {
 			ctx.mailId().ifPresent(mailId -> {
 				ctx.mail().ifPresentOrElse(mail -> {
-					repositorySupplier.get().ifPresentOrElse(repo -> {
-						if (stateButton.isSelected()) {
-							Source<Mail> source = ctx.trackMail(mailId);
-							monitorable.notify(state, mail.receivedDate(), source);
-							repo.update(monitorableId, monitorable);
-						} else {
-							monitorable.denotify(state, mail.receivedDate());
-							repo.update(monitorableId, monitorable);
-						}
-					}, () -> {
-						throw new IllegalStateException("No issue repository, should not be able to toggle the button");
-					});
+					if (stateButton.isSelected()) {
+						Source<Mail> source = ctx.trackMail(mailId);
+						monitorable.notify(state, mail.receivedDate(), source);
+						repository.update(monitorableId, monitorable);
+					} else {
+						monitorable.denotify(state, mail.receivedDate());
+						repository.update(monitorableId, monitorable);
+					}
 				}, () -> {
 					throw new IllegalStateException("No mail selected, should not be able to toggle the button");
 				});
@@ -864,9 +858,8 @@ public class Gui extends JFrame {
 			if (event.getPropertyName().equals(CheckMailContext.MAIL_ID)) {
 				@SuppressWarnings("unchecked")
 				Optional<MailId> mailId = (Optional<MailId>) event.getNewValue();
-				mailId.flatMap(id -> ctx.mailRepository()//
-						.map(repository -> repository.mustGet(id)))//
-						.ifPresentOrElse(mailPanel::setMail, mailPanel::clearMail);
+				mailId.map(ctx.frameContext().mailRepository()::mustGet)//
+						.ifPresent(mailPanel::setMail);
 			}
 		});
 
@@ -902,57 +895,6 @@ public class Gui extends JFrame {
 			support.removePropertyChangeListener(listener);
 		}
 
-		// FIXME Remove since repo is a constant
-		public static final String MAIL_REPOSITORY = "mailRepository";
-		private Optional<Repository<MailId, Mail>> mailRepository = Optional.empty();
-
-		public Optional<Repository<MailId, Mail>> mailRepository() {
-			if (mailRepository.isEmpty()) {
-				replaceMailRepository(Optional.of(frameContext.mailRepository()));
-			}
-			return mailRepository;
-		}
-
-		private void replaceMailRepository(Optional<Repository<MailId, Mail>> newRepository) {
-			Optional<Repository<MailId, Mail>> oldRepository = this.mailRepository;
-			this.mailRepository = newRepository;
-			support.firePropertyChange(MAIL_REPOSITORY, oldRepository, newRepository);
-		}
-
-		// FIXME Remove since repo is a constant
-		public static final String ISSUE_REPOSITORY = "issueRepository";
-		private Optional<Repository.Updatable<IssueId, Issue>> issueRepository = Optional.empty();
-
-		public Optional<Repository.Updatable<IssueId, Issue>> issueRepository() {
-			if (issueRepository.isEmpty()) {
-				replaceIssueRepository(Optional.of(frameContext.issueRepository()));
-			}
-			return issueRepository;
-		}
-
-		public void replaceIssueRepository(Optional<Repository.Updatable<IssueId, Issue>> newRepository) {
-			Optional<Repository.Updatable<IssueId, Issue>> oldRepository = this.issueRepository;
-			this.issueRepository = newRepository;
-			support.firePropertyChange(ISSUE_REPOSITORY, oldRepository, newRepository);
-		}
-
-		// FIXME Remove since repo is a constant
-		public static final String QUESTION_REPOSITORY = "questionRepository";
-		private Optional<Repository.Updatable<QuestionId, Question>> questionRepository = Optional.empty();
-
-		public Optional<Repository.Updatable<QuestionId, Question>> questionRepository() {
-			if (questionRepository.isEmpty()) {
-				replaceQuestionRepository(Optional.of(frameContext.questionRepository()));
-			}
-			return questionRepository;
-		}
-
-		public void replaceQuestionRepository(Optional<Repository.Updatable<QuestionId, Question>> newRepository) {
-			Optional<Repository.Updatable<QuestionId, Question>> oldRepository = this.questionRepository;
-			this.questionRepository = newRepository;
-			support.firePropertyChange(QUESTION_REPOSITORY, oldRepository, newRepository);
-		}
-
 		public static final String MAIL_ID_SET = "mailIdSet";
 		private final TreeSet<MailId> mailIds = new TreeSet<>(
 				Comparator.comparing(MailId::datetime).thenComparing(MailId::sender));
@@ -982,27 +924,16 @@ public class Gui extends JFrame {
 		}
 
 		public Optional<Mail> mail() {
-			return mailRepository().flatMap(repo -> this.mailId.map(repo::mustGet));
+			return mailId.map(frameContext.mailRepository()::mustGet);
 		}
 
 		public static CheckMailContext init(FrameContext ctx) {
 			CheckMailContext checkMailCtx = new CheckMailContext(ctx);
 
-			// Upon mail repository change, initialize the set of IDs for easy browsing
-			checkMailCtx.addPropertyChangeListener(event -> {
-				// TODO Cancel & reload if repo is changed again
-				if (event.getPropertyName().equals(CheckMailContext.MAIL_REPOSITORY)) {
-					@SuppressWarnings("unchecked")
-					Optional<Repository<MailId, Mail>> newRepo = (Optional<Repository<MailId, Mail>>) event
-							.getNewValue();
-					newRepo.ifPresent(repo -> {
-						SwingWorker<Void, MailId> loader = createMailIdsLoader(repo, mailIds -> {
-							checkMailCtx.addMailIds(mailIds);
-						});
-						loader.execute();
-					});
-				}
+			SwingWorker<Void, MailId> loader = createMailIdsLoader(ctx.mailRepository(), mailIds -> {
+				checkMailCtx.addMailIds(mailIds);
 			});
+			loader.execute();
 
 			// Upon creating the window, initialize the ID to be the first mail
 			ctx.frame.addWindowListener(new WindowAdapter() {
@@ -1011,32 +942,26 @@ public class Gui extends JFrame {
 					SwingUtilities.invokeLater(new Runnable() {
 						@Override
 						public void run() {
-							checkMailCtx.mailRepository().ifPresentOrElse(mailRepo -> {
-								checkMailCtx.issueRepository().ifPresentOrElse(issueRepo -> {
-									System.out.println("Searching mail to display...");
-									// XXX Consider other monitorable repos (question, etc.)
-									Optional<MailId> lastMailIdNotified = issueRepo.streamResources()//
-											.map(Issue::history)//
-											.flatMap(Monitorable.History::stream)//
-											.map(Monitorable.History.Item::source)//
-											.map(Source::resolve)//
-											.filter(Mail.class::isInstance).map(srcObject -> (Mail) srcObject)//
-											.distinct()//
-											.sorted(comparing(Mail::receivedDate).reversed())//
-											.findFirst()//
-											.flatMap(mail -> mailRepo.key(mail));
+							Repository<MailId, Mail> mailRepo = ctx.mailRepository();
+							Repository.Updatable<IssueId, Issue> issueRepo = ctx.issueRepository();
+							System.out.println("Searching mail to display...");
+							// XXX Consider other monitorable repos (question, etc.)
+							Optional<MailId> lastMailIdNotified = issueRepo.streamResources()//
+									.map(Issue::history)//
+									.flatMap(Monitorable.History::stream)//
+									.map(Monitorable.History.Item::source)//
+									.map(Source::resolve)//
+									.filter(Mail.class::isInstance).map(srcObject -> (Mail) srcObject)//
+									.distinct()//
+									.sorted(comparing(Mail::receivedDate).reversed())//
+									.findFirst()//
+									.flatMap(mail -> mailRepo.key(mail));
 
-									Optional<MailId> currentMailId = lastMailIdNotified
-											.or(() -> mailRepo.streamKeys().findFirst());
-									System.out.println("Set mail to display: " + currentMailId);
+							Optional<MailId> currentMailId = lastMailIdNotified
+									.or(() -> mailRepo.streamKeys().findFirst());
+							System.out.println("Set mail to display: " + currentMailId);
 
-									checkMailCtx.setMailId(currentMailId);
-								}, () -> {
-									SwingUtilities.invokeLater(this);
-								});
-							}, () -> {
-								SwingUtilities.invokeLater(this);
-							});
+							checkMailCtx.setMailId(currentMailId);
 						}
 					});
 				}
