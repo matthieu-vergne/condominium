@@ -16,6 +16,8 @@ import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.event.AWTEventListener;
 import java.awt.event.ActionEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -96,6 +98,7 @@ import fr.vergne.condominium.gui.Configuration.MissingKeyException;
 import fr.vergne.condominium.gui.JMailPanel;
 import fr.vergne.condominium.gui.JMonitorableTitle;
 
+// FIXME Support mails import
 @SuppressWarnings("serial")
 public class Gui extends JFrame {
 
@@ -147,7 +150,6 @@ public class Gui extends JFrame {
 	}
 
 	public Gui(Configuration configuration, Persister<Configuration> confPersister) {
-		// TODO Sync cache of each supplier: if repo is reset, others should be
 		Path mailRepositoryPath = configuration.mailsRepositoryPath();
 		FileRepository<MailId, Mail> mailRepository = Main.createMailRepository(mailRepositoryPath);
 
@@ -298,21 +300,27 @@ public class Gui extends JFrame {
 					}
 				};
 
-				Consumer<Path> pathApplier = path -> {
-					pathConsumer.accept(path);
-					pathField.setText(Optional.ofNullable(path).map(Path::toString).orElse(""));
-				};
-				pathApplier.accept(pathSupplier.get());
-
 				JButton browseButton = new JButton(UIManager.getIcon("FileView.directoryIcon"));
 				browseButton.setMargin(new Insets(0, 0, 0, 0));
 				JFileChooser chooser = new JFileChooser();
 				chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+
+				String initialContent = Optional.ofNullable(pathSupplier.get()).map(Path::toString).orElse("");
+				pathField.setText(initialContent);
+				pathField.addFocusListener(new FocusAdapter() {
+					@Override
+					public void focusLost(FocusEvent event) {
+						Path path = Path.of(pathField.getText());
+						pathConsumer.accept(path);
+					}
+				});
 				browseButton.addActionListener(event -> {
 					chooser.setCurrentDirectory(new File(pathField.getText()));
 					int choice = chooser.showOpenDialog(JPath.this);
 					if (choice == JFileChooser.APPROVE_OPTION) {
-						pathApplier.accept(chooser.getSelectedFile().toPath());
+						Path path = chooser.getSelectedFile().toPath();
+						pathConsumer.accept(path);
+						pathField.setText(path.toString());
 					}
 				});
 
@@ -333,7 +341,6 @@ public class Gui extends JFrame {
 				new JPath(confBuilder::issuesRepositoryPath, confBuilder::setIssuesRepositoryPath));
 		settingAdder.accept("Questions repository path",
 				new JPath(confBuilder::questionsRepositoryPath, confBuilder::setQuestionsRepositoryPath));
-		// TODO Feed builder
 
 		return settingsPanel;
 	}
