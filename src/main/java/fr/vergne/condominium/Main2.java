@@ -423,16 +423,16 @@ public class Main2 {
 			X elecChaufferie = f.apply("Elec.Chaufferie.general", Map.of(elecTgbtGeneral, X.Calculation.fromMwh(50.0)));
 
 			X elecChaufferieCombustible = f.apply("Elec.Chaufferie.combustible",
-					Map.of(elecChaufferie, X.Calculation.fromRatio(0.5)));
+					Map.of(elecChaufferie, X.Calculation.fromMwh(30.0)));
 			X elecChaufferieCombustibleECS = f.apply("Elec.Chaufferie.combustibleECS",
-					Map.of(elecChaufferieCombustible, X.Calculation.fromRatio(0.5)));
+					Map.of(elecChaufferieCombustible, X.Calculation.fromMwh(15.0)));
 			X elecChaufferieCombustibleECSTantiemes = f.apply("Elec.Chaufferie.combustibleECSTantiemes",
 					Map.of(elecChaufferieCombustibleECS, X.Calculation.fromRatio(0.3)));
 			X elecChaufferieCombustibleECSCompteurs = f.apply(
 					"Elec.Chaufferie.combustibleECSCompteurs",
 					Map.of(elecChaufferieCombustibleECS, X.Calculation.fromRatio(0.7)));
 			X elecChaufferieCombustibleRC = f.apply("Elec.Chaufferie.combustibleRC",
-					Map.of(elecChaufferieCombustible, X.Calculation.fromRatio(0.50)));
+					Map.of(elecChaufferieCombustible, X.Calculation.fromMwh(15.0)));
 			X elecChaufferieCombustibleRCTantiemes = f.apply(
 					"Elec.Chaufferie.combustibleRCTantiemes",
 					Map.of(elecChaufferieCombustibleRC, X.Calculation.fromRatio(0.3)));
@@ -440,34 +440,22 @@ public class Main2 {
 					"Elec.Chaufferie.combustibleRCCompteurs",
 					Map.of(elecChaufferieCombustibleRC, X.Calculation.fromRatio(0.7)));
 			X elecChaufferieAutre = f.apply("Elec.Chaufferie.autre",
-					Map.of(elecChaufferie, X.Calculation.fromRatio(0.5)));
+					Map.of(elecChaufferie, X.Calculation.fromMwh(20.0)));
 			X elecChaufferieAutreMesures = f.apply("Elec.Chaufferie.autreMesures",
 					Map.of(elecChaufferieAutre, X.Calculation.fromRatio(0.5)));
 			X elecChaufferieAutreTantiemes = f.apply("Elec.Chaufferie.autreTantiemes",
 					Map.of(elecChaufferieAutre, X.Calculation.fromRatio(0.5)));
 			
-			X elecChaufferieChauffageCombustibleRCTantiemes = f.apply(
-					"Elec.Chaufferie.Chauffage.combustibleRCTantiemes",
-					Map.of(elecChaufferieCombustibleRCTantiemes, X.Calculation.fromRatio(0.5)));
-			X elecChaufferieChauffageAutreTantiemes = f.apply("Elec.Chaufferie.Chauffage.autreTantiemes",
-					Map.of(elecChaufferieAutreTantiemes, X.Calculation.fromRatio(0.5)));
-
-			X elecChaufferieRafraichissementCombustibleRCTantiemes = f.apply(
-					"Elec.Chaufferie.Rafraichissement.combustibleRCTantiemes",
-					Map.of(elecChaufferieCombustibleRCTantiemes, X.Calculation.fromRatio(0.5)));
-			X elecChaufferieRafraichissementAutreTantiemes = f.apply("Elec.Chaufferie.Rafraichissement.autreTantiemes",
-					Map.of(elecChaufferieAutreTantiemes, X.Calculation.fromRatio(0.5)));
-
 			X tantièmesPcs3 = f.apply("Tantiemes.PCS3", Map.of(elecTgbtAscenseurBoussole, X.Calculation.fromAll()));
 			X tantièmesPcs4 = f.apply("Tantiemes.PCS4", Map.of(facturePoubellesBoussole, X.Calculation.fromAll()));
 			X tantièmesChauffage = f.apply("Tantiemes.ECS_Chauffage", Map.of(//
 					elecChaufferieCombustibleECSTantiemes, X.Calculation.fromAll(), //
-					elecChaufferieChauffageCombustibleRCTantiemes, X.Calculation.fromAll(), //
-					elecChaufferieChauffageAutreTantiemes, X.Calculation.fromAll()//
+					elecChaufferieCombustibleRCTantiemes, X.Calculation.fromRatio(0.5), //
+					elecChaufferieAutreTantiemes, X.Calculation.fromRatio(0.5)//
 			));
 			X tantièmesRafraichissement = f.apply("Tantiemes.Rafraichissement", Map.of(//
-					elecChaufferieRafraichissementCombustibleRCTantiemes, X.Calculation.fromAll(), //
-					elecChaufferieRafraichissementAutreTantiemes, X.Calculation.fromAll()//
+					elecChaufferieCombustibleRCTantiemes, X.Calculation.fromRatio(0.5), //
+					elecChaufferieAutreTantiemes, X.Calculation.fromRatio(0.5)//
 			));
 
 			// TODO Retrieve lots tantiemes from CSV(Lots, PCg/s)
@@ -476,7 +464,7 @@ public class Main2 {
 
 			X eauPotableFroideLot32 = f.apply("Eau.Potable.Froide.lot32",
 					Map.of(eauPotableGeneral, X.Calculation.fromWater(0.1)));
-			double ecs32 = 0.1;
+			double ecs32 = 10.0;
 			X.Calculation ecs32b = X.Calculation.fromSet(ecs32, setECS);
 			X eauPotableChaudeLot32 = f.apply("Eau.Potable.Chaude.lot32", Map.of(//
 					elecChaufferieCombustibleECSCompteurs, ecs32b, //
@@ -499,7 +487,7 @@ public class Main2 {
 
 			X eauPotableFroideLot33 = f.apply("Eau.Potable.Froide.lot33",
 					Map.of(eauPotableGeneral, X.Calculation.fromWater(0.1)));
-			double ecs33 = 0.1;
+			double ecs33 = 10.0;
 			X.Calculation ecs33b = X.Calculation.fromSet(ecs33, setECS);
 			X eauPotableChaudeLot33 = f.apply("Eau.Potable.Chaude.lot33", Map.of(//
 					elecChaufferieCombustibleECSCompteurs, ecs33b, //
