@@ -3,6 +3,9 @@ package fr.vergne.condominium;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.find;
 import static java.nio.file.Files.isRegularFile;
+import static java.util.Comparator.comparing;
+import static java.util.Objects.requireNonNull;
+import static java.util.function.Predicate.not;
 import static java.util.stream.Collectors.joining;
 
 import java.io.ByteArrayOutputStream;
@@ -16,20 +19,25 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
-import java.util.function.BiFunction;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import fr.vergne.condominium.core.mail.Mail;
@@ -76,444 +84,179 @@ public class Main2 {
 //			mailHistory.writeScript(historyScriptPath);
 //			mailHistory.writeSvg(historyPath);
 
+			/* STATIC INFO: MEASURED RESOURCES */
+
+			String mwhKey = "elec";
+			String waterKey = "eau";
+			String eurosKey = "euros";
+
+			List<String> resourceKeys = List.of(mwhKey, waterKey, eurosKey);
+
+			Graph graph = new Graph(resourceKeys);
+
+			/* OUTPUT */
+
+			String lot32 = "Lot.32";
+			String lot33 = "Lot.33";
+
+			/* STATIC SOURCE & STATIC INFO */
+
+			// TODO Retrieve lots tantiemes from CSV(Lots, PCg/s)
+			String tantièmesPcs3 = "Tantiemes.PCS3";
+			graph.link(tantièmesPcs3, Graph.Calculation.fromTantiemes(317), lot32);
+			graph.link(tantièmesPcs3, Graph.Calculation.fromTantiemes(449), lot33);
+
+			String tantièmesPcs4 = "Tantiemes.PCS4";
+			graph.link(tantièmesPcs4, Graph.Calculation.fromTantiemes(347), lot32);
+			graph.link(tantièmesPcs4, Graph.Calculation.fromTantiemes(494), lot33);
+
+			String tantièmesChauffage = "Tantiemes.ECS_Chauffage";
+			graph.link(tantièmesChauffage, Graph.Calculation.fromTantiemes(127), lot32);
+			graph.link(tantièmesChauffage, Graph.Calculation.fromTantiemes(179), lot33);
+
+			String tantièmesRafraichissement = "Tantiemes.Rafraichissement";
+			graph.link(tantièmesRafraichissement, Graph.Calculation.fromTantiemes(182), lot32);
+			graph.link(tantièmesRafraichissement, Graph.Calculation.fromTantiemes(256), lot33);
+
+			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";
+			graph.link(elecChaufferieCombustibleECSTantiemes, Graph.Calculation.fromAll(), tantièmesChauffage);
+			String elecChaufferieCombustibleECSCompteurs = "Elec.Chaufferie.combustibleECSCompteurs";
+			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";
+			graph.link(elecChaufferieCombustibleRCTantiemes, Graph.Calculation.fromRatio(0.5), tantièmesChauffage);
+			graph.link(elecChaufferieCombustibleRCTantiemes, Graph.Calculation.fromRatio(0.5), tantièmesRafraichissement);
+			String elecChaufferieCombustibleRCCompteurs = "Elec.Chaufferie.combustibleRCCompteurs";
+			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";
+			graph.link(elecChaufferieAutreTantiemes, Graph.Calculation.fromRatio(0.5), tantièmesChauffage);
+			graph.link(elecChaufferieAutreTantiemes, Graph.Calculation.fromRatio(0.5), tantièmesRafraichissement);
+			String elecChaufferieAutreMesures = "Elec.Chaufferie.autreMesures";
+
+			/* STATIC SOURCE & DYNAMIC INFO */
+
+			String eauPotableFroideLot32 = "Eau.Potable.Froide.lot32";
+			graph.link(eauPotableFroideLot32, Graph.Calculation.fromAll(), lot32);
+			String eauPotableFroideLot33 = "Eau.Potable.Froide.lot33";
+			graph.link(eauPotableFroideLot33, Graph.Calculation.fromAll(), lot33);
+
+			Graph.Calculation.SetX setECS = Graph.Calculation.createSet();
+			String eauPotableChaudeLot32 = "Eau.Potable.Chaude.lot32";
+			graph.link(eauPotableChaudeLot32, Graph.Calculation.fromAll(), lot32);
+			double ecs32 = 10.0;
+			Graph.Calculation ecs32b = Graph.Calculation.fromSet(ecs32, setECS);
+			graph.link(elecChaufferieCombustibleECSCompteurs, ecs32b, eauPotableChaudeLot32);// TODO Dispatch up
+			String eauPotableChaudeLot33 = "Eau.Potable.Chaude.lot33";
+			graph.link(eauPotableChaudeLot33, Graph.Calculation.fromAll(), lot33);
+			double ecs33 = 10.0;
+			Graph.Calculation ecs33b = Graph.Calculation.fromSet(ecs33, setECS);
+			graph.link(elecChaufferieCombustibleECSCompteurs, ecs33b, eauPotableChaudeLot33);// TODO Dispatch up
+			setECS.release();
+
+			Graph.Calculation.SetX setCalorifique = Graph.Calculation.createSet();
+			String elecCalorifiqueLot32 = "Elec.Calorifique.lot32";
+			graph.link(elecCalorifiqueLot32, Graph.Calculation.fromAll(), lot32);
+			Graph.Calculation calorifique32 = Graph.Calculation.fromSet(0.1, setCalorifique);
+			graph.link(elecChaufferieCombustibleRCCompteurs, calorifique32, elecCalorifiqueLot32);
+			graph.link(elecChaufferieAutreMesures, calorifique32, elecCalorifiqueLot32);
+			String elecCalorifiqueLot33 = "Elec.Calorifique.lot33";
+			graph.link(elecCalorifiqueLot33, Graph.Calculation.fromAll(), lot33);
+			Graph.Calculation calorifique33 = Graph.Calculation.fromSet(0.1, setCalorifique);
+			graph.link(elecChaufferieCombustibleRCCompteurs, calorifique33, elecCalorifiqueLot33);
+			graph.link(elecChaufferieAutreMesures, calorifique33, elecCalorifiqueLot33);
+			setCalorifique.release();
+
+			String eauPotableChaufferie = "Eau.Potable.chaufferie";
+			graph.link(eauPotableChaufferie, Graph.Calculation.fromResource(Graph.Mode.WATER, waterKey, ecs32), eauPotableChaudeLot32);
+			graph.link(eauPotableChaufferie, Graph.Calculation.fromResource(Graph.Mode.WATER, waterKey, ecs33), eauPotableChaudeLot33);
+			String eauPotableGeneral = "Eau.Potable.general";
+			graph.link(eauPotableGeneral, Graph.Calculation.fromResource(Graph.Mode.WATER, waterKey, 50.0), eauPotableChaufferie);
+			graph.link(eauPotableGeneral, Graph.Calculation.fromResource(Graph.Mode.WATER, waterKey, 0.1), eauPotableFroideLot32);
+			graph.link(eauPotableGeneral, Graph.Calculation.fromResource(Graph.Mode.WATER, waterKey, 0.1), eauPotableFroideLot33);
+
+			String elecChaufferieAutre = "Elec.Chaufferie.autre";
+			graph.link(elecChaufferieAutre, Graph.Calculation.fromRatio(0.5), elecChaufferieAutreMesures);
+			graph.link(elecChaufferieAutre, Graph.Calculation.fromRatio(0.5), elecChaufferieAutreTantiemes);
+			String elecChaufferieCombustibleRC = "Elec.Chaufferie.combustibleRC";
+			graph.link(elecChaufferieCombustibleRC, Graph.Calculation.fromRatio(0.3), elecChaufferieCombustibleRCTantiemes);
+			graph.link(elecChaufferieCombustibleRC, Graph.Calculation.fromRatio(0.7), elecChaufferieCombustibleRCCompteurs);
+			String elecChaufferieCombustibleECS = "Elec.Chaufferie.combustibleECS";
+			graph.link(elecChaufferieCombustibleECS, Graph.Calculation.fromRatio(0.3), elecChaufferieCombustibleECSTantiemes);
+			graph.link(elecChaufferieCombustibleECS, Graph.Calculation.fromRatio(0.7), elecChaufferieCombustibleECSCompteurs);
+			String elecChaufferieCombustible = "Elec.Chaufferie.combustible";
+			graph.link(elecChaufferieCombustible, Graph.Calculation.fromResource(Graph.Mode.MWH, mwhKey, 15.0), elecChaufferieCombustibleECS);
+			graph.link(elecChaufferieCombustible, Graph.Calculation.fromResource(Graph.Mode.MWH, mwhKey, 15.0), elecChaufferieCombustibleRC);
+			String elecChaufferie = "Elec.Chaufferie.general";
+			graph.link(elecChaufferie, Graph.Calculation.fromResource(Graph.Mode.MWH, mwhKey, 30.0), elecChaufferieCombustible);
+			graph.link(elecChaufferie, Graph.Calculation.fromResource(Graph.Mode.MWH, mwhKey, 20.0), elecChaufferieAutre);
+			String elecTgbtAscenseurBoussole = "Elec.TGBT.ascenseur_boussole";
+			graph.link(elecTgbtAscenseurBoussole, Graph.Calculation.fromAll(), tantièmesPcs3);
+			String elecTgbtGeneral = "Elec.TGBT.general";
+			graph.link(elecTgbtGeneral, Graph.Calculation.fromResource(Graph.Mode.MWH, mwhKey, 10.0), elecTgbtAscenseurBoussole);
+			graph.link(elecTgbtGeneral, Graph.Calculation.fromResource(Graph.Mode.MWH, mwhKey, 50.0), elecChaufferie);
+
+			/* DYNAMIC SOURCE & DYNAMIC INFO */
+
+			String factureElec = "Facture.Elec";
+			graph.assign(factureElec, mwhKey, 100.0);
+			graph.assign(factureElec, eurosKey, 1000.0);
+			graph.link(factureElec, Graph.Calculation.fromResource(Graph.Mode.MWH, mwhKey, 100.0), elecTgbtGeneral);
+
+			String factureWater = "Facture.Eau";
+			graph.assign(factureWater, waterKey, 100.0);
+			graph.assign(factureWater, eurosKey, 1000.0);
+			graph.link(factureWater, Graph.Calculation.fromResource(Graph.Mode.WATER, waterKey, 100.0), eauPotableGeneral);
+
+			String facturePoubellesBoussole = "Facture.PoubelleBoussole";
+			graph.assign(facturePoubellesBoussole, eurosKey, 100.0);
+			graph.link(facturePoubellesBoussole, Graph.Calculation.fromAll(), tantièmesPcs4);
+
+			graph.compute();
+
+			String title = "Charges";// "Charges " + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now());
+
 			LOGGER.accept("Redact script");
 			ByteArrayOutputStream out = new ByteArrayOutputStream();
 			PrintStream scriptStream = new PrintStream(out, false, Charset.forName("UTF-8"));
 			scriptStream.println("@startuml");
-			scriptStream.println("title " + LocalDateTime.now());
+			scriptStream.println("title \"" + title + "\"");
 			scriptStream.println("left to right direction");
-
-			interface X {
-				String id();
-
-				double mwh();
-
-				double euros();
-
-				double water();
-
-				static X create(String id, double mwh, double euros, double water) {
-					return new X() {
-
-						@Override
-						public String id() {
-							return id;
+			Map<String, String> resourceRenderer = Map.of(//
+					mwhKey, "MWh", //
+					waterKey, "m³", //
+					eurosKey, "€"//
+			);
+			Comparator<Graph.ID> idComparator = comparing(Graph.ID::value);
+			Comparator<Graph.Node> nodeComaprator = comparing(Graph.Node::id, idComparator);
+			graph.nodes().stream()//
+					// TODO Remove sort once tested
+					.sorted(nodeComaprator)//
+					.forEach(node -> {
+						scriptStream.println("map " + node.id().value() + " {");
+						resourceKeys.forEach(resourceKey -> {
+							scriptStream.println("	" + resourceRenderer.get(resourceKey) + " => " + node.get(resourceKey).map(Object::toString).orElse(""));
+						});
+						scriptStream.println("}");
+					});
+			graph.links().stream()//
+					// TODO Remove sort once tested
+					.sorted(comparing(Graph.Link::source, nodeComaprator).thenComparing(Graph.Link::target, nodeComaprator))//
+					.forEach(link -> {
+						Graph.Calculation calculation = link.calculation();
+						Graph.Mode mode = calculation.mode();
+						String calculationString;
+						if (mode == Graph.Mode.RATIO) {
+							calculationString = ((double) calculation.value() * 100) + " %";
+						} else if (mode == Graph.Mode.TANTIEMES) {
+							calculationString = (int) calculation.value() + " t";
+						} else if (mode == Graph.Mode.MWH) {
+							calculationString = (double) calculation.value() + " " + resourceRenderer.get(mwhKey);
+						} else if (mode == Graph.Mode.WATER) {
+							calculationString = (double) calculation.value() + " " + resourceRenderer.get(waterKey);
+						} else if (mode == Graph.Mode.SET) {
+							calculationString = (double) calculation.value() + " from set";
+						} else {
+							throw new IllegalArgumentException("Unsupported value: " + mode);
 						}
-
-						@Override
-						public double mwh() {
-							return mwh;
-						}
-
-						@Override
-						public double euros() {
-							return euros;
-						}
-
-						@Override
-						public double water() {
-							return water;
-						}
-					};
-				}
-
-				static X create(String id, Supplier<X> proxy) {
-					return new X() {
-
-						@Override
-						public String id() {
-							return id;
-						}
-
-						@Override
-						public double mwh() {
-							return proxy.get().mwh();
-						}
-
-						@Override
-						public double euros() {
-							return proxy.get().euros();
-						}
-
-						@Override
-						public double water() {
-							return proxy.get().water();
-						}
-					};
-				}
-
-				enum Mode {
-					RATIO, SET, MWH, WATER, TANTIEMES;
-				}
-
-				interface Calculation {
-
-					Number value();
-
-					X.Mode mode();
-
-					double ratio(X source);
-
-					static interface SetX {
-						void register(X.Calculation calculation);
-
-						Stream<X.Calculation> stream();
-
-						void release();
-					}
-
-					static Calculation fromAll() {
-						return fromRatio(1.0);
-					}
-
-					static Calculation fromRatio(double ratio) {
-						return new Calculation() {
-
-							@Override
-							public Number value() {
-								return ratio;
-							}
-
-							@Override
-							public double ratio(X source) {
-								return ratio;
-							}
-
-							@Override
-							public Mode mode() {
-								return Mode.RATIO;
-							}
-						};
-					}
-
-					static Calculation fromMwh(double mwh) {
-						return new Calculation() {
-
-							@Override
-							public Number value() {
-								return mwh;
-							}
-
-							@Override
-							public double ratio(X source) {
-								double ref = source.mwh();
-								if (ref <= 0) {
-									throw new IllegalArgumentException("No MWh in " + source.id());
-								}
-								return mwh / ref;
-							}
-
-							@Override
-							public Mode mode() {
-								return Mode.MWH;
-							}
-						};
-					}
-
-					static Calculation fromSet(double value, SetX set) {
-						Calculation calculation = new Calculation() {
-
-							@Override
-							public Number value() {
-								return value;
-							}
-
-							@Override
-							public double ratio(X source) {
-								double ref = set.stream()//
-										.map(X.Calculation::value)//
-										.map(Number::doubleValue)//
-										.map(BigDecimal::valueOf)//
-										.reduce(BigDecimal::add)//
-										.orElseThrow()//
-										.doubleValue();
-								if (ref <= 0) {
-									throw new IllegalArgumentException("No amount in " + set);
-								}
-								return value / ref;
-							}
-
-							@Override
-							public Mode mode() {
-								return Mode.SET;
-							}
-						};
-						set.register(calculation);
-						return calculation;
-					}
-
-					static Calculation fromWater(double water) {
-						return new Calculation() {
-
-							@Override
-							public Number value() {
-								return water;
-							}
-
-							@Override
-							public double ratio(X source) {
-								double ref = source.water();
-								if (ref <= 0) {
-									throw new IllegalArgumentException("No m³ in " + source.id());
-								}
-								return water / ref;
-							}
-
-							@Override
-							public Mode mode() {
-								return Mode.WATER;
-							}
-						};
-					}
-
-					static Calculation fromTantiemes(int tantiemes) {
-						return new Calculation() {
-							@Override
-							public Number value() {
-								return tantiemes;
-							}
-
-							@Override
-							public double ratio(X source) {
-								return (double) tantiemes / 10000;
-							}
-
-							@Override
-							public Mode mode() {
-								return Mode.TANTIEMES;
-							}
-						};
-					}
-
-					static SetX createSet() {
-						Set<X.Calculation> sources = new HashSet<>();
-						return new SetX() {
-							private boolean released = false;
-
-							public void register(X.Calculation calculation) {
-								sources.add(calculation);
-							};
-
-							@Override
-							public void release() {
-								this.released = true;
-							}
-
-							@Override
-							public Stream<X.Calculation> stream() {
-								if (!released) {
-									throw new IllegalStateException("Not relased yet");
-								}
-								return sources.stream();
-							}
-						};
-					}
-				}
-
-				record Y(X source, Calculation calculation, X target) {
-				}
-
-				static record Z(X target, Collection<Y> relations) {
-					static Z from(String id, Map<X, Calculation> map) {
-						Supplier<X> proxy = () -> {
-							var wrapper = new Object() {
-								BigDecimal mwh = BigDecimal.ZERO;
-								BigDecimal water = BigDecimal.ZERO;
-								BigDecimal euros = BigDecimal.ZERO;
-							};
-							map.entrySet().stream().forEach(entry -> {
-								X source = entry.getKey();
-								Calculation calculation = entry.getValue();
-								BigDecimal ratio = BigDecimal.valueOf(calculation.ratio(source));
-								wrapper.mwh = wrapper.mwh.add(BigDecimal.valueOf(source.mwh()).multiply(ratio));
-								wrapper.water = wrapper.water.add(BigDecimal.valueOf(source.water()).multiply(ratio));
-								wrapper.euros = wrapper.euros.add(BigDecimal.valueOf(source.euros()).multiply(ratio));
-							});
-							double mwh = wrapper.mwh.doubleValue();
-							double water = wrapper.water.doubleValue();
-							double euros = wrapper.euros.doubleValue();
-							return X.create(id, mwh, euros, water);
-						};
-						X target = X.create(id, proxy);
-						List<Y> relations = map.entrySet().stream().map(entry -> {
-							X source = entry.getKey();
-							Calculation calculation = entry.getValue();
-							return new Y(source, calculation, target);
-						}).toList();
-						return new Z(target, relations);
-					}
-				}
-			}
-			Consumer<X> objectPrinter = x -> {
-				scriptStream.println("map " + x.id() + " {");
-				scriptStream.println("	MWh => " + x.mwh());
-				scriptStream.println("	m³ => " + x.water());
-				scriptStream.println("	€ => " + x.euros());
-				scriptStream.println("}");
-			};
-			Function<X.Mode, Function<X.Calculation, String>> modeRenderer = mode -> {
-				switch (mode) {
-				case RATIO: {
-					return calculation -> ((double) calculation.value() * 100) + " %";
-				}
-				case TANTIEMES: {
-					return calculation -> (int) calculation.value() + " t";
-				}
-				case MWH: {
-					return calculation -> (double) calculation.value() + " MWh";
-				}
-				case WATER: {
-					return calculation -> (double) calculation.value() + " m³";
-				}
-				case SET: {
-					return calculation -> (double) calculation.value() + " from set";
-				}
-				default:
-					throw new IllegalArgumentException("Unsupported value: " + mode);
-				}
-			};
-			Consumer<X.Y> relationPrinter = y -> {
-				X.Calculation calculation = y.calculation();
-				X.Mode mode = calculation.mode();
-				Function<X.Calculation, String> calculationRenderer = modeRenderer.apply(mode);
-				String calculationString = calculationRenderer.apply(calculation);
-				scriptStream.println(y.source().id() + " --> " + y.target().id() + " : " + calculationString);
-			};
-			var printer = new Object() {
-				Runnable runnable = () -> {
-				};
-
-				void add(Runnable next) {
-					Runnable previous = this.runnable;
-					this.runnable = () -> {
-						previous.run();
-						next.run();
-					};
-				}
-
-				void print() {
-					runnable.run();
-				}
-			};
-			Function<X, X> g = x -> {
-				printer.add(() -> objectPrinter.accept(x));
-				return x;
-			};
-			BiFunction<String, Map<X, X.Calculation>, X> f = (id, sources) -> {
-				X.Z from7 = X.Z.from(id, sources);
-				X target = from7.target();
-				printer.add(() -> {
-					objectPrinter.accept(target);
-					from7.relations().forEach(relationPrinter);
-				});
-				return target;
-			};
-
-			X factureElec = g.apply(X.create("Facture.Elec", 100.0, 1000.0, 0.0));
-			X factureWater = g.apply(X.create("Facture.Eau", 0.0, 1000.0, 100.0));
-			X facturePoubellesBoussole = g.apply(X.create("Facture.PoubelleBoussole", 0.0, 100.0, 0.0));
-
-			X eauPotableGeneral = f.apply("Eau.Potable.general", Map.of(factureWater, X.Calculation.fromWater(100.0)));
-			X eauPotableChaufferie = f.apply("Eau.Potable.chaufferie",
-					Map.of(eauPotableGeneral, X.Calculation.fromWater(50.0)));
-
-			X elecTgbtGeneral = f.apply("Elec.TGBT.general", Map.of(factureElec, X.Calculation.fromMwh(100.0)));
-			X elecTgbtAscenseurBoussole = f.apply("Elec.TGBT.ascenseur_boussole",
-					Map.of(elecTgbtGeneral, X.Calculation.fromMwh(10.0)));
-			X elecChaufferie = f.apply("Elec.Chaufferie.general", Map.of(elecTgbtGeneral, X.Calculation.fromMwh(50.0)));
-
-			X elecChaufferieCombustible = f.apply("Elec.Chaufferie.combustible",
-					Map.of(elecChaufferie, X.Calculation.fromMwh(30.0)));
-			X elecChaufferieCombustibleECS = f.apply("Elec.Chaufferie.combustibleECS",
-					Map.of(elecChaufferieCombustible, X.Calculation.fromMwh(15.0)));
-			X elecChaufferieCombustibleECSTantiemes = f.apply("Elec.Chaufferie.combustibleECSTantiemes",
-					Map.of(elecChaufferieCombustibleECS, X.Calculation.fromRatio(0.3)));
-			X elecChaufferieCombustibleECSCompteurs = f.apply(
-					"Elec.Chaufferie.combustibleECSCompteurs",
-					Map.of(elecChaufferieCombustibleECS, X.Calculation.fromRatio(0.7)));
-			X elecChaufferieCombustibleRC = f.apply("Elec.Chaufferie.combustibleRC",
-					Map.of(elecChaufferieCombustible, X.Calculation.fromMwh(15.0)));
-			X elecChaufferieCombustibleRCTantiemes = f.apply(
-					"Elec.Chaufferie.combustibleRCTantiemes",
-					Map.of(elecChaufferieCombustibleRC, X.Calculation.fromRatio(0.3)));
-			X elecChaufferieCombustibleRCCompteurs = f.apply(
-					"Elec.Chaufferie.combustibleRCCompteurs",
-					Map.of(elecChaufferieCombustibleRC, X.Calculation.fromRatio(0.7)));
-			X elecChaufferieAutre = f.apply("Elec.Chaufferie.autre",
-					Map.of(elecChaufferie, X.Calculation.fromMwh(20.0)));
-			X elecChaufferieAutreMesures = f.apply("Elec.Chaufferie.autreMesures",
-					Map.of(elecChaufferieAutre, X.Calculation.fromRatio(0.5)));
-			X elecChaufferieAutreTantiemes = f.apply("Elec.Chaufferie.autreTantiemes",
-					Map.of(elecChaufferieAutre, X.Calculation.fromRatio(0.5)));
-			
-			X tantièmesPcs3 = f.apply("Tantiemes.PCS3", Map.of(elecTgbtAscenseurBoussole, X.Calculation.fromAll()));
-			X tantièmesPcs4 = f.apply("Tantiemes.PCS4", Map.of(facturePoubellesBoussole, X.Calculation.fromAll()));
-			X tantièmesChauffage = f.apply("Tantiemes.ECS_Chauffage", Map.of(//
-					elecChaufferieCombustibleECSTantiemes, X.Calculation.fromAll(), //
-					elecChaufferieCombustibleRCTantiemes, X.Calculation.fromRatio(0.5), //
-					elecChaufferieAutreTantiemes, X.Calculation.fromRatio(0.5)//
-			));
-			X tantièmesRafraichissement = f.apply("Tantiemes.Rafraichissement", Map.of(//
-					elecChaufferieCombustibleRCTantiemes, X.Calculation.fromRatio(0.5), //
-					elecChaufferieAutreTantiemes, X.Calculation.fromRatio(0.5)//
-			));
-
-			// TODO Retrieve lots tantiemes from CSV(Lots, PCg/s)
-			X.Calculation.SetX setCalorifique = X.Calculation.createSet();
-			X.Calculation.SetX setECS = X.Calculation.createSet();
-
-			X eauPotableFroideLot32 = f.apply("Eau.Potable.Froide.lot32",
-					Map.of(eauPotableGeneral, X.Calculation.fromWater(0.1)));
-			double ecs32 = 10.0;
-			X.Calculation ecs32b = X.Calculation.fromSet(ecs32, setECS);
-			X eauPotableChaudeLot32 = f.apply("Eau.Potable.Chaude.lot32", Map.of(//
-					elecChaufferieCombustibleECSCompteurs, ecs32b, //
-					eauPotableChaufferie, X.Calculation.fromWater(ecs32)//
-			));
-			X.Calculation calorifique32 = X.Calculation.fromSet(0.1, setCalorifique);
-			X elecCalorifiqueLot32 = f.apply("Elec.Calorifique.lot32", Map.of(//
-					elecChaufferieCombustibleRCCompteurs, calorifique32, //
-					elecChaufferieAutreMesures, calorifique32//
-			));
-			X lot32 = f.apply("Lot.32", Map.of(//
-					tantièmesPcs3, X.Calculation.fromTantiemes(317), //
-					tantièmesPcs4, X.Calculation.fromTantiemes(347), //
-					tantièmesChauffage, X.Calculation.fromTantiemes(127), //
-					tantièmesRafraichissement, X.Calculation.fromTantiemes(182), //
-					eauPotableFroideLot32, X.Calculation.fromAll(), //
-					eauPotableChaudeLot32, X.Calculation.fromAll(), //
-					elecCalorifiqueLot32, X.Calculation.fromAll()//
-			));
-
-			X eauPotableFroideLot33 = f.apply("Eau.Potable.Froide.lot33",
-					Map.of(eauPotableGeneral, X.Calculation.fromWater(0.1)));
-			double ecs33 = 10.0;
-			X.Calculation ecs33b = X.Calculation.fromSet(ecs33, setECS);
-			X eauPotableChaudeLot33 = f.apply("Eau.Potable.Chaude.lot33", Map.of(//
-					elecChaufferieCombustibleECSCompteurs, ecs33b, //
-					eauPotableChaufferie, X.Calculation.fromWater(ecs33)//
-			));
-			X.Calculation calorifique33 = X.Calculation.fromSet(0.1, setCalorifique);
-			X elecCalorifiqueLot33 = f.apply("Elec.Calorifique.lot33", Map.of(//
-					elecChaufferieCombustibleRCCompteurs, calorifique33, //
-					elecChaufferieAutreMesures, calorifique33//
-			));
-			X lot33 = f.apply("Lot.33", Map.of(//
-					tantièmesPcs3, X.Calculation.fromTantiemes(449), //
-					tantièmesPcs4, X.Calculation.fromTantiemes(494), //
-					tantièmesChauffage, X.Calculation.fromTantiemes(179), //
-					tantièmesRafraichissement, X.Calculation.fromTantiemes(256), //
-					eauPotableFroideLot33, X.Calculation.fromAll(), //
-					eauPotableChaudeLot33, X.Calculation.fromAll(), //
-					elecCalorifiqueLot33, X.Calculation.fromAll()//
-			));
-
-			setCalorifique.release();
-			setECS.release();
-
-			printer.print();
-
-//			scriptStream.println("Facture ..> Elec");
+						scriptStream.println(link.source().id().value() + " --> " + link.target().id().value() + " : " + calculationString);
+					});
 			scriptStream.println("@enduml");
 			scriptStream.flush();
 			String script = out.toString();
@@ -542,10 +285,10 @@ public class Main2 {
 
 			LOGGER.accept("Done");
 		}
+
 	}
 
-	static RefinerIdSerializer createRefinerIdSerializer(
-			Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner) {
+	static RefinerIdSerializer createRefinerIdSerializer(Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner) {
 		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
 		return new RefinerIdSerializer() {
 
@@ -576,8 +319,7 @@ public class Main2 {
 		};
 	}
 
-	public static Repository.Updatable<IssueId, Issue> createIssueRepository(Path repositoryPath,
-			Serializer<Issue, String> issueSerializer) {
+	public static Repository.Updatable<IssueId, Issue> createIssueRepository(Path repositoryPath, Serializer<Issue, String> issueSerializer) {
 		Function<Issue, IssueId> identifier = issue -> new IssueId(issue.dateTime());
 
 		Function<Issue, byte[]> resourceSerializer = issue -> {
@@ -621,8 +363,7 @@ public class Main2 {
 		);
 	}
 
-	public static Repository.Updatable<QuestionId, Question> createQuestionRepository(Path repositoryPath,
-			Serializer<Question, String> questionSerializer) {
+	public static Repository.Updatable<QuestionId, Question> createQuestionRepository(Path repositoryPath, Serializer<Question, String> questionSerializer) {
 		Function<Question, QuestionId> identifier = question -> new QuestionId(question.dateTime());
 
 		Function<Question, byte[]> resourceSerializer = question -> {
@@ -744,4 +485,368 @@ public class Main2 {
 				: Stream.of(body);
 	}
 
+	private static class Graph {
+		private final List<String> resourceKeys;
+		private final Collection<Graph.ID> ids = new LinkedHashSet<>();
+		private final List<Relation> relations = new LinkedList<>();
+		private final Map<Graph.ID, Map<String, Double>> inputs = new HashMap<>();
+
+		Graph(List<String> resourceKeys) {
+			this.resourceKeys = requireNonNull(resourceKeys);
+		}
+
+		void assign(String source, String key, double value) {
+			requireNonNull(source);
+			requireNonNull(key);
+
+			ID id = new ID(source);
+			ids.add(id);
+			inputs.compute(id, (k, map) -> {
+				if (map == null) {
+					map = new HashMap<>();
+				}
+				map.compute(key, (k2, oldValue) -> {
+					if (oldValue == null) {
+						return value;
+					} else {
+						throw new IllegalArgumentException(source + " already has " + key + " with " + oldValue + ", cannot assign " + value);
+					}
+				});
+				return map;
+			});
+		}
+
+		private record Relation(ID source, Calculation calculation, ID target) {
+			public Relation {
+				requireNonNull(source);
+				requireNonNull(calculation);
+				requireNonNull(target);
+			}
+		}
+
+		void link(String sourceId, Calculation calculation, String targetId) {
+			requireNonNull(sourceId);
+			requireNonNull(calculation);
+			requireNonNull(targetId);
+			relations.stream()//
+					.map(relation -> Set.of(relation.source().value(), relation.target().value()))//
+					.filter(set -> set.contains(sourceId) && set.contains(targetId))//
+					.findFirst().ifPresent(set -> {
+						throw new IllegalArgumentException(set + " are already linked");
+					});
+
+			ID source = new ID(sourceId);
+			ID target = new ID(targetId);
+			ids.add(source);
+			ids.add(target);
+			relations.add(new Relation(source, calculation, target));
+		}
+
+		private Map<Graph.ID, Node> nodes;
+		private Collection<Link> links;
+
+		void compute() {
+			nodes = new HashMap<>();
+
+			Collection<ID> inputIds = inputs.keySet();
+			inputIds.stream().forEach(id -> {
+				requireNonNull(id);
+				Map<String, Double> values = inputs.get(id);
+				requireNonNull(values);
+				nodes.put(id, Node.create(id, resourceKey -> {
+					requireNonNull(resourceKey);
+					return Optional.ofNullable(values.get(resourceKey));
+				}));
+			});
+
+			Comparator<ID> idComparator = idComparatorAsPerRelations(relations);
+
+			ids.stream()//
+					.sorted(idComparator)//
+					.filter(id -> !inputIds.contains(id))//
+					.forEach(targetId -> {
+						Supplier<Map<String, Optional<BigDecimal>>> proxy = cache(() -> {
+							Map<String, Optional<BigDecimal>> resourceValues = resourceKeys.stream().collect(Collectors.toMap(key -> key, key -> Optional.empty()));
+							relations.stream()//
+									.filter(relation -> relation.target().equals(targetId))//
+									.forEach(relation -> {
+										Graph.ID sourceId = relation.source();
+										Node source = nodes.get(sourceId);
+										Graph.Calculation calculation = relation.calculation();
+										BigDecimal ratio = BigDecimal.valueOf(calculation.ratio(source));
+										resourceKeys.forEach(resourceKey -> {
+											resourceValues.compute(resourceKey, (k, result) -> {
+												return source.get(resourceKey)//
+														.map(sourceValue -> BigDecimal.valueOf(sourceValue).multiply(ratio))//
+														.map(valueToAdd -> result.map(value -> value.add(valueToAdd)).orElse(valueToAdd))//
+														.or(() -> result);
+											});
+										});
+									});
+							return resourceValues;
+						});
+						nodes.put(targetId, Graph.Node.create(targetId, resourceKey -> proxy.get().get(resourceKey).map(BigDecimal::doubleValue)));
+					});
+
+			relations.sort(comparing(Relation::source, idComparator).thenComparing(Relation::target, idComparator));
+
+			links = new LinkedList<>();
+			relations.stream()//
+					.map(Relation::target)//
+					.distinct()//
+					.filter(id -> !inputIds.contains(id))//
+					.forEach(targetId -> {
+						requireNonNull(targetId);
+						links.addAll(relations.stream()//
+								.filter(relation -> relation.target().equals(targetId))//
+								.map(relation -> {
+									ID id = relation.source();
+									Node source = nodes.get(id);
+									requireNonNull(source, "No node for " + id);
+									Calculation calculation = relation.calculation();
+									return new Link(source, calculation, nodes.get(targetId));
+								}).toList());
+					});
+		}
+
+		private Comparator<ID> idComparatorAsPerRelations(List<Relation> relations) {
+			Map<ID, Set<ID>> orderedIds = relations.stream().collect(Collectors.groupingBy(Relation::source, Collectors.mapping(Relation::target, Collectors.toSet())));
+			BiPredicate<ID, ID> isBefore = (id1, id2) -> {
+				Set<ID> ids = Set.of(id1);
+				while (true) {
+					Set<ID> nexts = ids.stream().map(orderedIds::get).filter(not(Objects::isNull)).reduce(new HashSet<>(), (s1, s2) -> {
+						s1.addAll(s2);
+						return s1;
+					});
+					if (nexts.isEmpty()) {
+						return false;
+					}
+					if (nexts.contains(id2)) {
+						return true;
+					}
+					ids = nexts;
+				}
+			};
+			Comparator<ID> idValueComparator = Comparator.comparing(ID::value);
+			Comparator<ID> idComparator = (id1, id2) -> {
+				if (isBefore.test(id1, id2)) {
+					return -1;
+				} else if (isBefore.test(id2, id1)) {
+					return 1;
+				} else {
+					return idValueComparator.compare(id1, id2);
+				}
+			};
+			return idComparator;
+		}
+
+		Collection<Node> nodes() {
+			return nodes.values();
+		}
+
+		Collection<Link> links() {
+			return links;
+		}
+
+		private static interface Node {
+			ID id();
+
+			Optional<Double> get(String resourceKey);
+
+			static Node create(ID id, Function<String, Optional<Double>> resourceProvider) {
+				return new Node() {
+					@Override
+					public ID id() {
+						return id;
+					}
+
+					@Override
+					public Optional<Double> get(String resourceKey) {
+						return resourceProvider.apply(resourceKey);
+					}
+				};
+			}
+
+		}
+
+		static record ID(String value) {
+			ID {
+				requireNonNull(value);
+			}
+		}
+
+		static class Mode {
+			public static Mode RATIO = new Mode();
+			public static Mode SET = new Mode();
+			public static Mode MWH = new Mode();
+			public static Mode WATER = new Mode();
+			public static Mode TANTIEMES = new Mode();
+		}
+
+		static interface Calculation {
+
+			Number value();
+
+			Mode mode();
+
+			double ratio(Node source);
+
+			static interface SetX {
+				void register(Calculation calculation);
+
+				Stream<Calculation> stream();
+
+				void release();
+			}
+
+			static Calculation fromAll() {
+				return fromRatio(1.0);
+			}
+
+			static Calculation fromRatio(double ratio) {
+				return new Calculation() {
+
+					@Override
+					public Number value() {
+						return ratio;
+					}
+
+					@Override
+					public double ratio(Node source) {
+						return ratio;
+					}
+
+					@Override
+					public Mode mode() {
+						return Mode.RATIO;
+					}
+				};
+			}
+
+			static Calculation fromResource(Mode mode, String resourceKey, double value) {
+				requireNonNull(mode);
+				requireNonNull(resourceKey);
+				return new Calculation() {
+
+					@Override
+					public Number value() {
+						return value;
+					}
+
+					@Override
+					public double ratio(Node source) {
+						requireNonNull(source);
+						double ref = source.get(resourceKey).orElseThrow(() -> new IllegalArgumentException("No " + resourceKey + " in " + source.id()));
+						return value / ref;
+					}
+
+					@Override
+					public Mode mode() {
+						return mode;
+					}
+				};
+			}
+
+			static Calculation fromSet(double value, SetX set) {
+				requireNonNull(set);
+				Calculation calculation = new Calculation() {
+
+					@Override
+					public Number value() {
+						return value;
+					}
+
+					@Override
+					public double ratio(Node source) {
+						requireNonNull(source);
+						double ref = set.stream()//
+								.map(Graph.Calculation::value)//
+								.map(Number::doubleValue)//
+								.map(BigDecimal::valueOf)//
+								.reduce(BigDecimal::add)//
+								.orElseThrow()//
+								.doubleValue();
+						if (ref <= 0) {
+							throw new IllegalArgumentException("No amount in " + set);
+						}
+						return value / ref;
+					}
+
+					@Override
+					public Mode mode() {
+						return Mode.SET;
+					}
+				};
+				set.register(calculation);
+				return calculation;
+			}
+
+			static Calculation fromTantiemes(int tantiemes) {
+				return new Calculation() {
+					@Override
+					public Number value() {
+						return tantiemes;
+					}
+
+					@Override
+					public double ratio(Node source) {
+						return (double) tantiemes / 10000;
+					}
+
+					@Override
+					public Mode mode() {
+						return Mode.TANTIEMES;
+					}
+				};
+			}
+
+			static SetX createSet() {
+				Set<Graph.Calculation> sources = new HashSet<>();
+				return new SetX() {
+					private boolean released = false;
+
+					public void register(Graph.Calculation calculation) {
+						requireNonNull(calculation);
+						sources.add(calculation);
+					};
+
+					@Override
+					public void release() {
+						this.released = true;
+					}
+
+					@Override
+					public Stream<Graph.Calculation> stream() {
+						if (!released) {
+							throw new IllegalStateException("Not relased yet");
+						}
+						return sources.stream();
+					}
+				};
+			}
+		}
+
+		static record Link(Node source, Calculation calculation, Node target) {
+			Link {
+				requireNonNull(source);
+				requireNonNull(calculation);
+				requireNonNull(target);
+			}
+		}
+	}
+
+	private static <T> Supplier<T> cache(Supplier<T> supplier) {
+		requireNonNull(supplier);
+		return new Supplier<T>() {
+			private T value = null;
+
+			@Override
+			public T get() {
+				if (value == null) {
+					value = supplier.get();
+				}
+				return value;
+			}
+		};
+	}
 }

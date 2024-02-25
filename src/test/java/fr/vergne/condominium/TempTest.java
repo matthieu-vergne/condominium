@@ -37,6 +37,26 @@ class TempTest {
 	}
 
 	@Test
+	void testPlantUmlScriptCharges() throws IOException {
+		String fileName = "graphCharges.plantuml";
+		Path srcPath = srcFolder.resolve(fileName);
+		Path refPath = refFolder.resolve(fileName);
+		String src = new String(Files.readAllBytes(srcPath));
+		String ref = new String(Files.readAllBytes(refPath));
+		assertThat(src, is(equalTo(ref)));
+	}
+
+	@Test
+	void testPlantUmlChargesImage() throws IOException {
+		String fileName = "graphCharges.svg";
+		Path srcPath = srcFolder.resolve(fileName);
+		Path refPath = refFolder.resolve(fileName);
+		String src = new String(Files.readAllBytes(srcPath));
+		String ref = new String(Files.readAllBytes(refPath));
+		assertThat(src, is(equalTo(ref)));
+	}
+
+	@Test
 	void testGraph2() throws IOException {
 		String fileName = "graph2.png";
 		Path srcPath = srcFolder.resolve(fileName);
