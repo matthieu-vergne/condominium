@@ -103,93 +103,97 @@ public class Main2 {
 
 			// TODO Retrieve lots tantiemes from CSV(Lots, PCg/s)
 			String tantièmesPcs3 = "Tantiemes.PCS3";
-			graphStatic.link(tantièmesPcs3, Graph.Static.Calculation.fromTantiemes(317), lot32);
-			graphStatic.link(tantièmesPcs3, Graph.Static.Calculation.fromTantiemes(449), lot33);
+			graphStatic.dispatch(tantièmesPcs3).to(lot32).taking(Graph.Static.tantiemes(317));
+			graphStatic.dispatch(tantièmesPcs3).to(lot33).taking(Graph.Static.tantiemes(449));
 
 			String tantièmesPcs4 = "Tantiemes.PCS4";
-			graphStatic.link(tantièmesPcs4, Graph.Static.Calculation.fromTantiemes(347), lot32);
-			graphStatic.link(tantièmesPcs4, Graph.Static.Calculation.fromTantiemes(494), lot33);
+			graphStatic.dispatch(tantièmesPcs4).to(lot32).taking(Graph.Static.tantiemes(347));
+			graphStatic.dispatch(tantièmesPcs4).to(lot33).taking(Graph.Static.tantiemes(494));
 
 			String tantièmesChauffage = "Tantiemes.ECS_Chauffage";
-			graphStatic.link(tantièmesChauffage, Graph.Static.Calculation.fromTantiemes(127), lot32);
-			graphStatic.link(tantièmesChauffage, Graph.Static.Calculation.fromTantiemes(179), lot33);
+			graphStatic.dispatch(tantièmesChauffage).to(lot32).taking(Graph.Static.tantiemes(127));
+			graphStatic.dispatch(tantièmesChauffage).to(lot33).taking(Graph.Static.tantiemes(179));
 
 			String tantièmesRafraichissement = "Tantiemes.Rafraichissement";
-			graphStatic.link(tantièmesRafraichissement, Graph.Static.Calculation.fromTantiemes(182), lot32);
-			graphStatic.link(tantièmesRafraichissement, Graph.Static.Calculation.fromTantiemes(256), lot33);
+			graphStatic.dispatch(tantièmesRafraichissement).to(lot32).taking(Graph.Static.tantiemes(182));
+			graphStatic.dispatch(tantièmesRafraichissement).to(lot33).taking(Graph.Static.tantiemes(256));
 
 			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";
-			graphStatic.link(elecChaufferieCombustibleECSTantiemes, Graph.Static.Calculation.fromAll(), tantièmesChauffage);
+			graphStatic.dispatch(elecChaufferieCombustibleECSTantiemes).to(tantièmesChauffage).taking(Graph.Static.everything());
 			String elecChaufferieCombustibleECSCompteurs = "Elec.Chaufferie.combustibleECSCompteurs";
 			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";
-			graphStatic.link(elecChaufferieCombustibleRCTantiemes, Graph.Static.Calculation.fromRatio(0.5), tantièmesChauffage);
-			graphStatic.link(elecChaufferieCombustibleRCTantiemes, Graph.Static.Calculation.fromRatio(0.5), tantièmesRafraichissement);
+			graphStatic.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantièmesChauffage).taking(Graph.Static.ratio(0.5));
+			graphStatic.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantièmesRafraichissement).taking(Graph.Static.ratio(0.5));
 			String elecChaufferieCombustibleRCCompteurs = "Elec.Chaufferie.combustibleRCCompteurs";
 			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";
-			graphStatic.link(elecChaufferieAutreTantiemes, Graph.Static.Calculation.fromRatio(0.5), tantièmesChauffage);
-			graphStatic.link(elecChaufferieAutreTantiemes, Graph.Static.Calculation.fromRatio(0.5), tantièmesRafraichissement);
+			graphStatic.dispatch(elecChaufferieAutreTantiemes).to(tantièmesChauffage).taking(Graph.Static.ratio(0.5));
+			graphStatic.dispatch(elecChaufferieAutreTantiemes).to(tantièmesRafraichissement).taking(Graph.Static.ratio(0.5));
 			String elecChaufferieAutreMesures = "Elec.Chaufferie.autreMesures";
 
 			/* STATIC SOURCE & DYNAMIC INFO */
 
 			String eauPotableFroideLot32 = "Eau.Potable.Froide.lot32";
-			graphStatic.link(eauPotableFroideLot32, Graph.Static.Calculation.fromAll(), lot32);
+			graphStatic.dispatch(eauPotableFroideLot32).to(lot32).taking(Graph.Static.everything());
 			String eauPotableFroideLot33 = "Eau.Potable.Froide.lot33";
-			graphStatic.link(eauPotableFroideLot33, Graph.Static.Calculation.fromAll(), lot33);
+			graphStatic.dispatch(eauPotableFroideLot33).to(lot33).taking(Graph.Static.everything());
 
-			Graph.Static.Calculation.SetX setECS = Graph.Static.Calculation.createSet();
+			Graph.Static.Calculation.SetX setECS = graphStatic.createSet();
 			String eauPotableChaudeLot32 = "Eau.Potable.Chaude.lot32";
-			graphStatic.link(eauPotableChaudeLot32, Graph.Static.Calculation.fromAll(), lot32);
+			graphStatic.dispatch(eauPotableChaudeLot32).to(lot32).taking(Graph.Static.everything());
 			// TODO Introduce intermediary variables
+			String compteurEcs32 = "Compteur.ECS.Lot.32";
+			Graph.Static.Calculation.Variable compteurEcs32Var = graphStatic.variable(compteurEcs32);
 			double ecs32 = 10.0;
-			graphStatic.link(elecChaufferieCombustibleECSCompteurs, Graph.Static.Calculation.fromSet(ecs32, setECS), eauPotableChaudeLot32);// TODO Dispatch up
+			graphStatic.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(Graph.Static.fromSet(ecs32, setECS));// TODO Dispatch up
 			String eauPotableChaudeLot33 = "Eau.Potable.Chaude.lot33";
-			graphStatic.link(eauPotableChaudeLot33, Graph.Static.Calculation.fromAll(), lot33);
+			graphStatic.dispatch(eauPotableChaudeLot33).to(lot33).taking(Graph.Static.everything());
+			String compteurEcs33 = "Compteur.ECS.Lot.33";
+			Graph.Static.Calculation.Variable compteurEcs33Var = graphStatic.variable(compteurEcs33);
 			double ecs33 = 10.0;
-			graphStatic.link(elecChaufferieCombustibleECSCompteurs, Graph.Static.Calculation.fromSet(ecs33, setECS), eauPotableChaudeLot33);// TODO Dispatch up
+			graphStatic.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(Graph.Static.fromSet(ecs33, setECS));// TODO Dispatch up
 			setECS.release();
 
-			Graph.Static.Calculation.SetX setCalorifique = Graph.Static.Calculation.createSet();
+			Graph.Static.Calculation.SetX setCalorifique = graphStatic.createSet();
 			String elecCalorifiqueLot32 = "Elec.Calorifique.lot32";
-			graphStatic.link(elecCalorifiqueLot32, Graph.Static.Calculation.fromAll(), lot32);
-			Graph.Static.Calculation calorifique32 = Graph.Static.Calculation.fromSet(0.1, setCalorifique);
-			graphStatic.link(elecChaufferieCombustibleRCCompteurs, calorifique32, elecCalorifiqueLot32);
-			graphStatic.link(elecChaufferieAutreMesures, calorifique32, elecCalorifiqueLot32);
+			graphStatic.dispatch(elecCalorifiqueLot32).to(lot32).taking(Graph.Static.everything());
+			Graph.Static.Calculation calorifique32 = Graph.Static.fromSet(0.1, setCalorifique);
+			graphStatic.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot32).taking(calorifique32);
+			graphStatic.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot32).taking(calorifique32);
 			String elecCalorifiqueLot33 = "Elec.Calorifique.lot33";
-			graphStatic.link(elecCalorifiqueLot33, Graph.Static.Calculation.fromAll(), lot33);
-			Graph.Static.Calculation calorifique33 = Graph.Static.Calculation.fromSet(0.1, setCalorifique);
-			graphStatic.link(elecChaufferieCombustibleRCCompteurs, calorifique33, elecCalorifiqueLot33);
-			graphStatic.link(elecChaufferieAutreMesures, calorifique33, elecCalorifiqueLot33);
+			graphStatic.dispatch(elecCalorifiqueLot33).to(lot33).taking(Graph.Static.everything());
+			Graph.Static.Calculation calorifique33 = Graph.Static.fromSet(0.1, setCalorifique);
+			graphStatic.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot33).taking(calorifique33);
+			graphStatic.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot33).taking(calorifique33);
 			setCalorifique.release();
 
 			String eauPotableChaufferie = "Eau.Potable.chaufferie";
-			graphStatic.link(eauPotableChaufferie, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.WATER, waterKey, ecs32), eauPotableChaudeLot32);
-			graphStatic.link(eauPotableChaufferie, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.WATER, waterKey, ecs33), eauPotableChaudeLot33);
+			graphStatic.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.WATER, waterKey, ecs32));
+			graphStatic.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.WATER, waterKey, ecs33));
 			String eauPotableGeneral = "Eau.Potable.general";
-			graphStatic.link(eauPotableGeneral, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.WATER, waterKey, 50.0), eauPotableChaufferie);
-			graphStatic.link(eauPotableGeneral, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.WATER, waterKey, 0.1), eauPotableFroideLot32);
-			graphStatic.link(eauPotableGeneral, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.WATER, waterKey, 0.1), eauPotableFroideLot33);
+			graphStatic.dispatch(eauPotableGeneral).to(eauPotableChaufferie).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.WATER, waterKey, 50.0));
+			graphStatic.dispatch(eauPotableGeneral).to(eauPotableFroideLot32).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.WATER, waterKey, 0.1));
+			graphStatic.dispatch(eauPotableGeneral).to(eauPotableFroideLot33).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.WATER, waterKey, 0.1));
 
 			String elecChaufferieAutre = "Elec.Chaufferie.autre";
-			graphStatic.link(elecChaufferieAutre, Graph.Static.Calculation.fromRatio(0.5), elecChaufferieAutreMesures);
-			graphStatic.link(elecChaufferieAutre, Graph.Static.Calculation.fromRatio(0.5), elecChaufferieAutreTantiemes);
+			graphStatic.dispatch(elecChaufferieAutre).to(elecChaufferieAutreMesures).taking(Graph.Static.ratio(0.5));
+			graphStatic.dispatch(elecChaufferieAutre).to(elecChaufferieAutreTantiemes).taking(Graph.Static.ratio(0.5));
 			String elecChaufferieCombustibleRC = "Elec.Chaufferie.combustibleRC";
-			graphStatic.link(elecChaufferieCombustibleRC, Graph.Static.Calculation.fromRatio(0.3), elecChaufferieCombustibleRCTantiemes);
-			graphStatic.link(elecChaufferieCombustibleRC, Graph.Static.Calculation.fromRatio(0.7), elecChaufferieCombustibleRCCompteurs);
+			graphStatic.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCTantiemes).taking(Graph.Static.ratio(0.3));
+			graphStatic.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCCompteurs).taking(Graph.Static.ratio(0.7));
 			String elecChaufferieCombustibleECS = "Elec.Chaufferie.combustibleECS";
-			graphStatic.link(elecChaufferieCombustibleECS, Graph.Static.Calculation.fromRatio(0.3), elecChaufferieCombustibleECSTantiemes);
-			graphStatic.link(elecChaufferieCombustibleECS, Graph.Static.Calculation.fromRatio(0.7), elecChaufferieCombustibleECSCompteurs);
+			graphStatic.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSTantiemes).taking(Graph.Static.ratio(0.3));
+			graphStatic.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSCompteurs).taking(Graph.Static.ratio(0.7));
 			String elecChaufferieCombustible = "Elec.Chaufferie.combustible";
-			graphStatic.link(elecChaufferieCombustible, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.MWH, mwhKey, 15.0), elecChaufferieCombustibleECS);
-			graphStatic.link(elecChaufferieCombustible, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.MWH, mwhKey, 15.0), elecChaufferieCombustibleRC);
+			graphStatic.dispatch(elecChaufferieCombustible).to(elecChaufferieCombustibleECS).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.MWH, mwhKey, 15.0));
+			graphStatic.dispatch(elecChaufferieCombustible).to(elecChaufferieCombustibleRC).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.MWH, mwhKey, 15.0));
 			String elecChaufferie = "Elec.Chaufferie.general";
-			graphStatic.link(elecChaufferie, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.MWH, mwhKey, 30.0), elecChaufferieCombustible);
-			graphStatic.link(elecChaufferie, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.MWH, mwhKey, 20.0), elecChaufferieAutre);
+			graphStatic.dispatch(elecChaufferie).to(elecChaufferieCombustible).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.MWH, mwhKey, 30.0));
+			graphStatic.dispatch(elecChaufferie).to(elecChaufferieAutre).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.MWH, mwhKey, 20.0));
 			String elecTgbtAscenseurBoussole = "Elec.TGBT.ascenseur_boussole";
-			graphStatic.link(elecTgbtAscenseurBoussole, Graph.Static.Calculation.fromAll(), tantièmesPcs3);
+			graphStatic.dispatch(elecTgbtAscenseurBoussole).to(tantièmesPcs3).taking(Graph.Static.everything());
 			String elecTgbtGeneral = "Elec.TGBT.general";
-			graphStatic.link(elecTgbtGeneral, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.MWH, mwhKey, 10.0), elecTgbtAscenseurBoussole);
-			graphStatic.link(elecTgbtGeneral, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.MWH, mwhKey, 50.0), elecChaufferie);
+			graphStatic.dispatch(elecTgbtGeneral).to(elecTgbtAscenseurBoussole).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.MWH, mwhKey, 10.0));
+			graphStatic.dispatch(elecTgbtGeneral).to(elecChaufferie).taking(Graph.Static.resource(Graph.Static.Calculation.Mode.MWH, mwhKey, 50.0));
 
 			/* DYNAMIC SOURCE & DYNAMIC INFO */
 
@@ -198,16 +202,16 @@ public class Main2 {
 			String factureElec = "Facture.Elec";
 			graphDynamic.assign(factureElec, mwhKey, 100.0);
 			graphDynamic.assign(factureElec, eurosKey, 1000.0);
-			graphDynamic.link(factureElec, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.MWH, mwhKey, 100.0), elecTgbtGeneral);
+			graphDynamic.link(factureElec, Graph.Static.resource(Graph.Static.Calculation.Mode.MWH, mwhKey, 100.0), elecTgbtGeneral);
 
 			String factureWater = "Facture.Eau";
 			graphDynamic.assign(factureWater, waterKey, 100.0);
 			graphDynamic.assign(factureWater, eurosKey, 1000.0);
-			graphDynamic.link(factureWater, Graph.Static.Calculation.fromResource(Graph.Static.Calculation.Mode.WATER, waterKey, 100.0), eauPotableGeneral);
+			graphDynamic.link(factureWater, Graph.Static.resource(Graph.Static.Calculation.Mode.WATER, waterKey, 100.0), eauPotableGeneral);
 
 			String facturePoubellesBoussole = "Facture.PoubelleBoussole";
 			graphDynamic.assign(facturePoubellesBoussole, eurosKey, 100.0);
-			graphDynamic.link(facturePoubellesBoussole, Graph.Static.Calculation.fromAll(), tantièmesPcs4);
+			graphDynamic.link(facturePoubellesBoussole, graphDynamic.calculateFromAll(), tantièmesPcs4);
 
 			Graph.Instance graphInstance = graphDynamic.compute();
 
@@ -240,7 +244,7 @@ public class Main2 {
 					// TODO Remove sort once tested
 					.sorted(comparing(Graph.Instance.Link::source, nodeComparator).thenComparing(Graph.Instance.Link::target, nodeComparator))//
 					.forEach(link -> {
-						Graph.Instance.Result result = link.result();
+						Graph.Instance.Resources result = link.result();
 						Graph.Static.Calculation.Mode mode = result.mode();
 						String calculationString;
 						if (mode == Graph.Static.Calculation.Mode.RATIO) {
@@ -500,6 +504,168 @@ public class Main2 {
 				this.resourceKeys = requireNonNull(resourceKeys);
 			}
 
+			static Calculation resource(Calculation.Mode mode, String resourceKey, double value) {
+				requireNonNull(mode);
+				requireNonNull(resourceKey);
+				return new Calculation() {
+					@Override
+					public Graph.Instance.Resources compute(Graph.Instance.Node source) {
+						requireNonNull(source);
+						double ref = source.get(resourceKey).orElseThrow(() -> new IllegalArgumentException("No " + resourceKey + " in " + source.id()));
+						double ratio = value / ref;
+						return new Graph.Instance.Resources() {
+							@Override
+							public Number value() {
+								return value;
+							}
+
+							@Override
+							public Mode mode() {
+								return mode;
+							}
+
+							@Override
+							public double ratio() {
+								return ratio;
+							}
+						};
+					}
+				};
+			}
+
+			static Calculation everything() {
+				return ratio(1.0);
+			}
+
+			static Calculation ratio(double ratio) {
+				return new Calculation() {
+					@Override
+					public Graph.Instance.Resources compute(Graph.Instance.Node source) {
+						return new Graph.Instance.Resources() {
+							@Override
+							public Number value() {
+								return ratio;
+							}
+
+							@Override
+							public Mode mode() {
+								return Mode.RATIO;
+							}
+
+							@Override
+							public double ratio() {
+								return ratio;
+							}
+						};
+					}
+				};
+			}
+
+			static Calculation tantiemes(int tantiemes) {
+				return new Calculation() {
+					@Override
+					public Graph.Instance.Resources compute(Graph.Instance.Node source) {
+						double ratio = (double) tantiemes / 10000;
+						return new Graph.Instance.Resources() {
+							@Override
+							public Number value() {
+								return tantiemes;
+							}
+
+							@Override
+							public Mode mode() {
+								return Mode.TANTIEMES;
+							}
+
+							@Override
+							public double ratio() {
+								return ratio;
+							}
+						};
+					}
+				};
+			}
+
+			Calculation.SetX createSet() {
+				Map<Graph.Static.Calculation, Double> sources = new HashMap<>();
+				return new Calculation.SetX() {
+					private boolean released = false;
+
+					@Override
+					public void register(Calculation calculation, double value) {
+						requireNonNull(calculation);
+						sources.compute(calculation, (k, oldValue) -> {
+							if (oldValue != null) {
+								throw new IllegalArgumentException("Calculation already set with: " + oldValue);
+							} else {
+								return value;
+							}
+						});
+					};
+
+					@Override
+					public double value(Calculation calculation) {
+						return sources.get(calculation);
+					}
+
+					@Override
+					public void release() {
+						this.released = true;
+					}
+
+					@Override
+					public Stream<Graph.Static.Calculation> stream() {
+						if (!released) {
+							throw new IllegalStateException("Not relased yet");
+						}
+						return sources.keySet().stream();
+					}
+				};
+			}
+
+			static Calculation fromSet(double value, Graph.Static.Calculation.SetX set) {
+				requireNonNull(set);
+				Calculation calculation = new Calculation() {
+					@Override
+					public Graph.Instance.Resources compute(Graph.Instance.Node source) {
+						double ref = set.stream()//
+								.map(set::value)//
+								.map(BigDecimal::valueOf)//
+								.reduce(BigDecimal::add)//
+								.orElseThrow()//
+								.doubleValue();
+						if (ref <= 0) {
+							throw new IllegalArgumentException("No amount in " + set);
+						}
+						double ratio = value / ref;
+
+						return new Graph.Instance.Resources() {
+							@Override
+							public Number value() {
+								return value;
+							}
+
+							@Override
+							public Mode mode() {
+								return Mode.SET;
+							}
+
+							@Override
+							public double ratio() {
+								return ratio;
+							}
+						};
+					}
+				};
+				set.register(calculation, value);
+				return calculation;
+			}
+
+			public Calculation.Variable variable(String string) {
+				// TODO Auto-generated method stub
+				return null;
+			}
+
 			static record ID(String value) {
 				ID {
 					requireNonNull(value);
@@ -507,8 +673,12 @@ public class Main2 {
 			}
 
 			static interface Calculation {
+				// TODO Make it consume Resources
+				Graph.Instance.Resources compute(Graph.Instance.Node source);
 
-				Graph.Instance.Result compute(Graph.Instance.Node source);
+				public interface Variable {
+
+				}
 
 				static class Mode {
 					public static Mode RATIO = new Mode();
@@ -528,15 +698,17 @@ public class Main2 {
 					void release();
 				}
 
+				@Deprecated
 				static Calculation fromAll() {
 					return fromRatio(1.0);
 				}
 
+				@Deprecated
 				static Calculation fromRatio(double ratio) {
 					return new Calculation() {
 						@Override
-						public Graph.Instance.Result compute(Graph.Instance.Node source) {
-							return new Graph.Instance.Result() {
+						public Graph.Instance.Resources compute(Graph.Instance.Node source) {
+							return new Graph.Instance.Resources() {
 								@Override
 								public Number value() {
 									return ratio;
@@ -555,135 +727,6 @@ public class Main2 {
 						}
 					};
 				}
-
-				static Calculation fromResource(Mode mode, String resourceKey, double value) {
-					requireNonNull(mode);
-					requireNonNull(resourceKey);
-					return new Calculation() {
-						@Override
-						public Graph.Instance.Result compute(Graph.Instance.Node source) {
-							requireNonNull(source);
-							double ref = source.get(resourceKey).orElseThrow(() -> new IllegalArgumentException("No " + resourceKey + " in " + source.id()));
-							double ratio = value / ref;
-							return new Graph.Instance.Result() {
-								@Override
-								public Number value() {
-									return value;
-								}
-
-								@Override
-								public Mode mode() {
-									return mode;
-								}
-
-								@Override
-								public double ratio() {
-									return ratio;
-								}
-							};
-						}
-					};
-				}
-
-				static Calculation fromSet(double value, SetX set) {
-					requireNonNull(set);
-					Calculation calculation = new Calculation() {
-						@Override
-						public Graph.Instance.Result compute(Graph.Instance.Node source) {
-							double ref = set.stream()//
-									.map(set::value)//
-									.map(BigDecimal::valueOf)//
-									.reduce(BigDecimal::add)//
-									.orElseThrow()//
-									.doubleValue();
-							if (ref <= 0) {
-								throw new IllegalArgumentException("No amount in " + set);
-							}
-							double ratio = value / ref;
-
-							return new Graph.Instance.Result() {
-								@Override
-								public Number value() {
-									return value;
-								}
-
-								@Override
-								public Mode mode() {
-									return Mode.SET;
-								}
-
-								@Override
-								public double ratio() {
-									return ratio;
-								}
-							};
-						}
-					};
-					set.register(calculation, value);
-					return calculation;
-				}
-
-				static Calculation fromTantiemes(int tantiemes) {
-					return new Calculation() {
-						@Override
-						public Graph.Instance.Result compute(Graph.Instance.Node source) {
-							double ratio = (double) tantiemes / 10000;
-							return new Graph.Instance.Result() {
-								@Override
-								public Number value() {
-									return tantiemes;
-								}
-
-								@Override
-								public Mode mode() {
-									return Mode.TANTIEMES;
-								}
-
-								@Override
-								public double ratio() {
-									return ratio;
-								}
-							};
-						}
-					};
-				}
-
-				static SetX createSet() {
-					Map<Graph.Static.Calculation, Double> sources = new HashMap<>();
-					return new SetX() {
-						private boolean released = false;
-
-						@Override
-						public void register(Calculation calculation, double value) {
-							requireNonNull(calculation);
-							sources.compute(calculation, (k, oldValue) -> {
-								if (oldValue != null) {
-									throw new IllegalArgumentException("Calculation already set with: " + oldValue);
-								} else {
-									return value;
-								}
-							});
-						};
-
-						@Override
-						public double value(Calculation calculation) {
-							return sources.get(calculation);
-						}
-
-						@Override
-						public void release() {
-							this.released = true;
-						}
-
-						@Override
-						public Stream<Graph.Static.Calculation> stream() {
-							if (!released) {
-								throw new IllegalStateException("Not relased yet");
-							}
-							return sources.keySet().stream();
-						}
-					};
-				}
 			}
 
 			public record Relation(ID source, Calculation calculation, ID target) {
@@ -694,22 +737,34 @@ public class Main2 {
 				}
 			}
 
-			void link(String sourceId, Calculation calculation, String targetId) {
-				requireNonNull(sourceId);
-				requireNonNull(calculation);
-				requireNonNull(targetId);
-				relations.stream()//
-						.map(relation -> Set.of(relation.source().value(), relation.target().value()))//
-						.filter(set -> set.contains(sourceId) && set.contains(targetId))//
-						.findFirst().ifPresent(set -> {
-							throw new IllegalArgumentException(set + " are already linked");
-						});
+			static interface Dispatcher {
+				Dispatched to(String targetId);
+			}
 
-				ID source = new ID(sourceId);
-				ID target = new ID(targetId);
-				ids.add(source);
-				ids.add(target);
-				relations.add(new Relation(source, calculation, target));
+			static interface Dispatched {
+				void taking(Calculation calculation);
+			}
+
+			Dispatcher dispatch(String sourceId) {
+				requireNonNull(sourceId);
+				return targetId -> {
+					requireNonNull(targetId);
+					return calculation -> {
+						requireNonNull(calculation);
+						relations.stream()//
+								.map(relation -> Set.of(relation.source().value(), relation.target().value()))//
+								.filter(set -> set.contains(sourceId) && set.contains(targetId))//
+								.findFirst().ifPresent(set -> {
+									throw new IllegalArgumentException(set + " are already linked");
+								});
+
+						ID source = new ID(sourceId);
+						ID target = new ID(targetId);
+						ids.add(source);
+						ids.add(target);
+						relations.add(new Relation(source, calculation, target));
+					};
+				};
 			}
 
 			@Override
@@ -737,6 +792,12 @@ public class Main2 {
 				this.ids = ids;
 				this.relations = relations;
 				this.resourceKeys = resourceKeys;
+			}
+
+			// TODO Factor
+			@Deprecated
+			public Static.Calculation calculateFromAll() {
+				return Graph.Static.Calculation.fromAll();
 			}
 
 			@Override
@@ -804,7 +865,6 @@ public class Main2 {
 
 				Comparator<Static.ID> idComparator = idComparatorAsPerRelations(relations);
 
-				Collection<Instance.Link> links = new LinkedList<>();
 				ids.stream()//
 						.sorted(idComparator)//
 						.filter(id -> !inputIds.contains(id))//
@@ -815,8 +875,13 @@ public class Main2 {
 										.filter(relation -> relation.target().equals(targetId))//
 										.forEach(relation -> {
 											Static.ID sourceId = relation.source();
+											// TODO Get source resources
+											// TODO Compute relation-specific target resources
+											// TODO Add to overall target resources
+											// TODO Build target from resources
+											// TODO Focus on resources, build nodes at the end
 											Instance.Node source = nodes.get(sourceId);
-											Graph.Instance.Result result = relation.calculation().compute(source);
+											Graph.Instance.Resources result = relation.calculation().compute(source);
 											BigDecimal ratio = BigDecimal.valueOf(result.ratio());
 											resourceKeys.forEach(resourceKey -> {
 												resourceValues.compute(resourceKey, (k, currentValue) -> {
@@ -832,6 +897,7 @@ public class Main2 {
 							nodes.put(targetId, Graph.Instance.Node.create(targetId, resourceKey -> proxy.get().get(resourceKey).map(BigDecimal::doubleValue)));
 						});
 
+				Collection<Instance.Link> links = new LinkedList<>();
 				relations.stream()//
 						.map(Static.Relation::target)//
 						.distinct()//
@@ -844,8 +910,9 @@ public class Main2 {
 										Static.ID id = relation.source();
 										Instance.Node source = nodes.get(id);
 										requireNonNull(source, "No node for " + id);
-										Graph.Instance.Result result = relation.calculation().compute(source);
-										return new Instance.Link(source, result, nodes.get(targetId));
+										// TODO Store calculation instead of resources?
+										Graph.Instance.Resources resources = relation.calculation().compute(source);
+										return new Instance.Link(source, resources, nodes.get(targetId));
 									}).toList());
 						});
 
@@ -925,15 +992,19 @@ public class Main2 {
 
 			}
 
-			static interface Result {
+			// TODO Provide all resources
+			static interface Resources {
+				// TODO Move to renderer as graph decorator
 				Static.Calculation.Mode mode();
 
+				// TODO Move to renderer as graph decorator
 				Number value();
 
+				// TODO Move it to Calculation
 				double ratio();
 			}
 
-			static record Link(Node source, Result result, Node target) {
+			static record Link(Node source, Resources result, Node target) {
 				public Link {
 					requireNonNull(source);
 					requireNonNull(result);
