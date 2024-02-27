@@ -137,34 +137,32 @@ public class Main2 {
 			String eauPotableFroideLot33 = "Eau.Potable.Froide.lot33";
 			partialModel.dispatch(eauPotableFroideLot33).to(lot33).taking(Graph.PartialModel.everything());
 
-			Graph.PartialModel.Calculation.SetX setECS = partialModel.createSet();
+			Graph.PartialModel.Group setECS = partialModel.createGroup();
 			String eauPotableChaudeLot32 = "Eau.Potable.Chaude.lot32";
 			partialModel.dispatch(eauPotableChaudeLot32).to(lot32).taking(Graph.PartialModel.everything());
 			// TODO Introduce intermediary variables
 			String compteurEcs32 = "Compteur.ECS.Lot.32";
-			Graph.PartialModel.Calculation.Variable compteurEcs32Var = partialModel.variable(compteurEcs32);
+			Graph.PartialModel.Calculation.Value compteurEcs32Var = partialModel.variable(compteurEcs32);
 			double ecs32 = 10.0;
-			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(Graph.PartialModel.fromSet(ecs32, setECS));// TODO Dispatch up
+			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(setECS.part(ecs32));// TODO Dispatch up
 			String eauPotableChaudeLot33 = "Eau.Potable.Chaude.lot33";
 			partialModel.dispatch(eauPotableChaudeLot33).to(lot33).taking(Graph.PartialModel.everything());
 			String compteurEcs33 = "Compteur.ECS.Lot.33";
-			Graph.PartialModel.Calculation.Variable compteurEcs33Var = partialModel.variable(compteurEcs33);
+			Graph.PartialModel.Calculation.Value compteurEcs33Var = partialModel.variable(compteurEcs33);
 			double ecs33 = 10.0;
-			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(Graph.PartialModel.fromSet(ecs33, setECS));// TODO Dispatch up
-			setECS.release();
+			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(setECS.part(ecs33));// TODO Dispatch up
 
-			Graph.PartialModel.Calculation.SetX setCalorifique = partialModel.createSet();
+			Graph.PartialModel.Group setCalorifique = partialModel.createGroup();
 			String elecCalorifiqueLot32 = "Elec.Calorifique.lot32";
 			partialModel.dispatch(elecCalorifiqueLot32).to(lot32).taking(Graph.PartialModel.everything());
-			Graph.PartialModel.Calculation calorifique32 = Graph.PartialModel.fromSet(0.1, setCalorifique);
+			Graph.PartialModel.Calculation calorifique32 = setCalorifique.part(0.1);
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot32).taking(calorifique32);
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot32).taking(calorifique32);
 			String elecCalorifiqueLot33 = "Elec.Calorifique.lot33";
 			partialModel.dispatch(elecCalorifiqueLot33).to(lot33).taking(Graph.PartialModel.everything());
-			Graph.PartialModel.Calculation calorifique33 = Graph.PartialModel.fromSet(0.1, setCalorifique);
+			Graph.PartialModel.Calculation calorifique33 = setCalorifique.part(0.1);
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot33).taking(calorifique33);
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot33).taking(calorifique33);
-			setCalorifique.release();
 
 			String eauPotableChaufferie = "Eau.Potable.chaufferie";
 			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(Graph.PartialModel.resource(Graph.PartialModel.Calculation.Mode.WATER, waterKey, ecs32));
@@ -586,82 +584,49 @@ public class Main2 {
 				};
 			}
 
-			Calculation.SetX createSet() {
-				Map<Graph.PartialModel.Calculation, Double> sources = new HashMap<>();
-				return new Calculation.SetX() {
-					private boolean released = false;
-
-					@Override
-					public void register(Calculation calculation, double value) {
-						requireNonNull(calculation);
-						sources.compute(calculation, (k, oldValue) -> {
-							if (oldValue != null) {
-								throw new IllegalArgumentException("Calculation already set with: " + oldValue);
-							} else {
-								return value;
-							}
-						});
-					};
-
-					@Override
-					public double value(Calculation calculation) {
-						return sources.get(calculation);
-					}
-
-					@Override
-					public void release() {
-						this.released = true;
-					}
-
-					@Override
-					public Stream<Graph.PartialModel.Calculation> stream() {
-						if (!released) {
-							throw new IllegalStateException("Not relased yet");
-						}
-						return sources.keySet().stream();
-					}
-				};
+			static interface Group {
+				Calculation part(double value);
 			}
 
-			static Calculation fromSet(double value, Graph.PartialModel.Calculation.SetX set) {
-				requireNonNull(set);
-				Calculation calculation = new Calculation() {
+			Group createGroup() {
+				var total = new Object() {
+					BigDecimal value = BigDecimal.ZERO;
+				};
+				return new Group() {
 					@Override
-					public Graph.Instance.Resources compute(Graph.Instance.Node source) {
-						double ref = set.stream()//
-								.map(set::value)//
-								.map(BigDecimal::valueOf)//
-								.reduce(BigDecimal::add)//
-								.orElseThrow()//
-								.doubleValue();
-						if (ref <= 0) {
-							throw new IllegalArgumentException("No amount in " + set);
-						}
-						double ratio = value / ref;
-
-						return new Graph.Instance.Resources() {
+					public Calculation part(double value) {
+						BigDecimal bigValue = BigDecimal.valueOf(value);
+						total.value = total.value.add(bigValue);
+						return new Calculation() {
 							@Override
-							public Number value() {
-								return value;
-							}
+							public Graph.Instance.Resources compute(Graph.Instance.Node source) {
+								if (total.value.compareTo(BigDecimal.ZERO) <= 0) {
+									throw new IllegalArgumentException("No amount in " + this);
+								}
+								double ratio = bigValue.divide(total.value).doubleValue();
+								return new Graph.Instance.Resources() {
+									@Override
+									public Number value() {
+										return value;
+									}
 
-							@Override
-							public Mode mode() {
-								return Mode.SET;
-							}
+									@Override
+									public Mode mode() {
+										return Mode.SET;
+									}
 
-							@Override
-							public double ratio() {
-								return ratio;
+									@Override
+									public double ratio() {
+										return ratio;
+									}
+								};
 							}
 						};
 					}
 				};
-				set.register(calculation, value);
-				return calculation;
 			}
 
-			public Calculation.Variable variable(String string) {
+			public Calculation.Value variable(String string) {
 				// TODO Auto-generated method stub
 				return null;
 			}
@@ -676,8 +641,8 @@ public class Main2 {
 				// TODO Make it consume Resources
 				Graph.Instance.Resources compute(Graph.Instance.Node source);
 
-				public interface Variable {
-
+				public interface Value {
+					double resolve();
 				}
 
 				static class Mode {
@@ -686,16 +651,6 @@ public class Main2 {
 					public static Mode MWH = new Mode();
 					public static Mode WATER = new Mode();
 					public static Mode TANTIEMES = new Mode();
-				}
-
-				static interface SetX {
-					void register(Calculation calculation, double value);
-
-					double value(Calculation calculation);
-
-					Stream<Calculation> stream();
-
-					void release();
 				}
 
 				@Deprecated
