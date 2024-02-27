@@ -307,8 +307,6 @@ public class Main2 {
 							yield (double) value + " " + resourceRenderer.get(waterKey);
 						case SET:
 							yield (double) value + " from set";
-						default:
-							throw new IllegalArgumentException("Unexpected value: " + mode);
 						};
 						scriptStream.println(link.source().id().value() + " --> " + link.target().id().value() + " : " + calculationString);
 					});
