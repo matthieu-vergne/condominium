@@ -14,9 +14,12 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -127,7 +130,7 @@ public class Main {
 			);
 		}
 
-		String x;
+		createIssuesFromMails(mailRepository, mailRepoSource, mailRefiner, issueRepository);
 		if ("".length() == 0)
 			throw new RuntimeException("Check");
 
@@ -169,6 +172,69 @@ public class Main {
 		}
 	}
 
+	private static void createIssuesFromMails(Repository<MailId, Mail> mailRepository,
+			Source<Repository<MailId, Mail>> mailRepoSource,
+			Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner,
+			Repository.Updatable<IssueId, Issue> issueRepository) {
+
+		/*
+		 * get all issues and put them in a map
+		 */
+		LOGGER.accept(" (" + new Date().toString() + ") - " + "Creating issues from mails");
+		Stream<Entry<IssueId, Issue>> allIssues = issueRepository.stream();
+		LOGGER.accept(" (" + new Date().toString() + ") - " + "put all existing issues in a map");
+		Map<String, Entry<IssueId, Issue>> issuesMap = new HashMap<String, Entry<IssueId, Issue>>();
+		allIssues.forEach(entry -> {
+			issuesMap.put(entry.getValue().title(), entry);
+		});
+
+		List<String> excludedLabels = Arrays.asList("Messages archivés", "Messages envoyés", "Ouvert", "Important",
+				"Catégorie : E-mails personnels", "Boîte de réception", "Catégorie : Mises à jour",
+				"Catégorie : Promotions", "Non lus", "Corbeille");
+
+		LOGGER.accept(" (" + new Date().toString() + ") - " + "Loop overs all mails");
+		mailRepository.stream().forEach(entry -> {
+			MailId mailId = entry.getKey();
+			Mail mail = entry.getValue();
+			// get mail label to use it as a title for Issue
+			String mailLabels = mail.headers().tryGet("X-Gmail-Labels").get().body();
+			String[] labels = mailLabels.split(",");
+			Source<Mail> mailSource = mailRepoSource.refine(mailRefiner, mailId);
+			ZonedDateTime mailReceivedDate = mail.receivedDate();
+
+			Arrays.stream(labels).filter(mailLabel -> !excludedLabels.contains(mailLabel)).forEach(mailLabel -> {
+				LOGGER.accept(" (" + new Date().toString() + ") - " + "update map with label : " + mailLabel);
+				Issue issue = null;
+
+				// check if an issue already exist with the same datetime, otherwise create a
+				// new one
+				if (issuesMap.containsKey(mailLabel)) {
+					issue = issuesMap.get(mailLabel).getValue();
+				} else {
+					issue = Issue.create(mailLabel, mailReceivedDate, History.createEmpty());
+					IssueId issueId = new IssueId(mailReceivedDate);
+					issuesMap.put(mailLabel, Map.entry(issueId, issue));
+				}
+
+				// Try to remove mail from issue history and then add, to not have it twice
+				issue.history().remove(new History.Item<Issue.State>(mailReceivedDate, Issue.State.INFO, mailSource));
+				issue.history().add(new History.Item<Issue.State>(mailReceivedDate, Issue.State.INFO, mailSource));
+
+			});
+
+		});
+
+		LOGGER.accept(" (" + new Date().toString() + ") - " + "add/update all issues from the map");
+		issuesMap.values().forEach(entry -> {
+			if (issueRepository.has(entry.getKey())) {
+				issueRepository.update(entry.getKey(), entry.getValue());
+			} else {
+				issueRepository.add(entry.getValue());
+			}
+		});
+
+	}
+	
 	static RefinerIdSerializer createRefinerIdSerializer(
 			Source.Refiner<Repository<MailId, Mail>, MailId, Mail> mailRefiner) {
 		DateTimeFormatter dateParser = DateTimeFormatter.ISO_DATE_TIME;
