@@ -197,14 +197,27 @@ public class Main2 {
 			String eauPotableChaudeLot32 = "Eau.Potable.Chaude.lot32";
 			partialModel.dispatch(eauPotableChaudeLot32).to(lot32).taking(calc.everything());
 			// TODO Reuse value in various places
-			var variables = new Object() {
-				Double ecs32;
-				Double ecs33;
-			};
-			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(setECS.part(() -> variables.ecs32));// TODO Dispatch up
+			class Variables {
+				Map<String, Double> values = new HashMap<>();
+
+				public double get(String variable) {
+					// TODO Check existing
+					return values.get(variable);
+				}
+
+				public void set(String variable, double value) {
+					// TODO Check not existing
+					values.put(variable, value);
+				}
+			}
+			Variables variables = new Variables();
+			;
+			String ecs32Var = "ecs32";
+			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(setECS.part(() -> variables.get(ecs32Var)));// TODO Dispatch up
 			String eauPotableChaudeLot33 = "Eau.Potable.Chaude.lot33";
 			partialModel.dispatch(eauPotableChaudeLot33).to(lot33).taking(calc.everything());
-			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(setECS.part(() -> variables.ecs33));// TODO Dispatch up
+			String ecs33Var = "ecs33";
+			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(setECS.part(() -> variables.get(ecs33Var)));// TODO Dispatch up
 
 			Calculation.Factory.Group setCalorifique = calc.createGroup();
 			String elecCalorifiqueLot32 = "Elec.Calorifique.lot32";
@@ -219,8 +232,8 @@ public class Main2 {
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot33).taking(calorifique33);
 
 			String eauPotableChaufferie = "Eau.Potable.chaufferie";
-			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, () -> variables.ecs32));
-			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, () -> variables.ecs33));
+			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, () -> variables.get(ecs32Var)));
+			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, () -> variables.get(ecs33Var)));
 			String eauPotableGeneral = "Eau.Potable.general";
 			partialModel.dispatch(eauPotableGeneral).to(eauPotableChaufferie).taking(calc.resource(waterKey, 50.0));
 			partialModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot32).taking(calc.resource(waterKey, 0.1));
@@ -263,8 +276,8 @@ public class Main2 {
 			partialModel.assign(facturePoubellesBoussole, eurosKey, 100.0);
 			partialModel.dispatch(facturePoubellesBoussole).to(tantièmesPcs4).taking(calc.everything());
 
-			variables.ecs32 = 10.0;
-			variables.ecs33 = 10.0;
+			variables.set(ecs32Var, 10.0);
+			variables.set(ecs33Var, 10.0);
 			Graph.Instance graphInstance = partialModel.instantiate();
 
 			String title = "Charges";// "Charges " + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now());
@@ -577,6 +590,7 @@ public class Main2 {
 
 		static interface Factory {
 			Calculation resource(String resourceKey, Value<Double> value);
+
 			default Calculation resource(String resourceKey, double value) {
 				return resource(resourceKey, () -> value);
 			}
@@ -903,7 +917,7 @@ public class Main2 {
 			}
 		};
 	}
-	
+
 	static interface Value<T> {
 		T get();
 	}
