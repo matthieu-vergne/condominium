@@ -98,7 +98,7 @@ public class Main2 {
 			enum Mode {
 				RATIO, SET, MWH, WATER, TANTIEMES
 			}
-			record EnrichedCalculation(Calculation delegate, Mode mode, Number value) implements Calculation {
+			record EnrichedCalculation(Calculation delegate, Mode mode, Value<? extends Number> value) implements Calculation {
 				@Override
 				public Calculation.Resources compute(Calculation.Resources source) {
 					return delegate.compute(source);
@@ -117,23 +117,23 @@ public class Main2 {
 				}
 
 				@Override
-				public Calculation resource(String resourceKey, double value) {
+				public Calculation resource(String resourceKey, Value<Double> value) {
 					return new EnrichedCalculation(factory.resource(resourceKey, value), resourceModes.get(resourceKey), value);
 				}
 
 				@Override
 				public Calculation everything() {
-					return new EnrichedCalculation(factory.everything(), Mode.RATIO, 1.0);
+					return new EnrichedCalculation(factory.everything(), Mode.RATIO, () -> 1.0);
 				}
 
 				@Override
 				public Calculation ratio(double ratio) {
-					return new EnrichedCalculation(factory.ratio(ratio), Mode.RATIO, ratio);
+					return new EnrichedCalculation(factory.ratio(ratio), Mode.RATIO, () -> ratio);
 				}
 
 				@Override
 				public Calculation tantiemes(int tantiemes) {
-					return new EnrichedCalculation(factory.tantiemes(tantiemes), Mode.TANTIEMES, tantiemes);
+					return new EnrichedCalculation(factory.tantiemes(tantiemes), Mode.TANTIEMES, () -> tantiemes);
 				}
 
 				@Override
@@ -141,7 +141,7 @@ public class Main2 {
 					Calculation.Factory.Group group = factory.createGroup();
 					return new Calculation.Factory.Group() {
 						@Override
-						public Calculation part(double value) {
+						public Calculation part(Value<Double> value) {
 							return new EnrichedCalculation(group.part(value), Mode.SET, value);
 						}
 					};
@@ -197,28 +197,30 @@ public class Main2 {
 			String eauPotableChaudeLot32 = "Eau.Potable.Chaude.lot32";
 			partialModel.dispatch(eauPotableChaudeLot32).to(lot32).taking(calc.everything());
 			// TODO Reuse value in various places
-			double ecs32 = 10.0;
-			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(setECS.part(ecs32));// TODO Dispatch up
+			var variables = new Object() {
+				Double ecs32;
+				Double ecs33;
+			};
+			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(setECS.part(() -> variables.ecs32));// TODO Dispatch up
 			String eauPotableChaudeLot33 = "Eau.Potable.Chaude.lot33";
 			partialModel.dispatch(eauPotableChaudeLot33).to(lot33).taking(calc.everything());
-			double ecs33 = 10.0;
-			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(setECS.part(ecs33));// TODO Dispatch up
+			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(setECS.part(() -> variables.ecs33));// TODO Dispatch up
 
 			Calculation.Factory.Group setCalorifique = calc.createGroup();
 			String elecCalorifiqueLot32 = "Elec.Calorifique.lot32";
 			partialModel.dispatch(elecCalorifiqueLot32).to(lot32).taking(calc.everything());
-			Calculation calorifique32 = setCalorifique.part(0.1);
+			Calculation calorifique32 = setCalorifique.part(() -> 0.1);
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot32).taking(calorifique32);
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot32).taking(calorifique32);
 			String elecCalorifiqueLot33 = "Elec.Calorifique.lot33";
 			partialModel.dispatch(elecCalorifiqueLot33).to(lot33).taking(calc.everything());
-			Calculation calorifique33 = setCalorifique.part(0.1);
+			Calculation calorifique33 = setCalorifique.part(() -> 0.1);
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot33).taking(calorifique33);
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot33).taking(calorifique33);
 
 			String eauPotableChaufferie = "Eau.Potable.chaufferie";
-			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, ecs32));
-			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, ecs33));
+			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, () -> variables.ecs32));
+			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, () -> variables.ecs33));
 			String eauPotableGeneral = "Eau.Potable.general";
 			partialModel.dispatch(eauPotableGeneral).to(eauPotableChaufferie).taking(calc.resource(waterKey, 50.0));
 			partialModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot32).taking(calc.resource(waterKey, 0.1));
@@ -261,6 +263,8 @@ public class Main2 {
 			partialModel.assign(facturePoubellesBoussole, eurosKey, 100.0);
 			partialModel.dispatch(facturePoubellesBoussole).to(tantièmesPcs4).taking(calc.everything());
 
+			variables.ecs32 = 10.0;
+			variables.ecs33 = 10.0;
 			Graph.Instance graphInstance = partialModel.instantiate();
 
 			String title = "Charges";// "Charges " + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now());
@@ -295,7 +299,7 @@ public class Main2 {
 						Calculation calculation = link.calculation();
 						EnrichedCalculation enrichedCalculation = enrichedCalculationFactory.enrich(calculation);
 						Mode mode = enrichedCalculation.mode();
-						Number value = enrichedCalculation.value();
+						Number value = enrichedCalculation.value().get();
 						String calculationString = switch (mode) {
 						case RATIO:
 							yield ((double) value * 100) + " %";
@@ -572,7 +576,10 @@ public class Main2 {
 		}
 
 		static interface Factory {
-			Calculation resource(String resourceKey, double value);
+			Calculation resource(String resourceKey, Value<Double> value);
+			default Calculation resource(String resourceKey, double value) {
+				return resource(resourceKey, () -> value);
+			}
 
 			Calculation tantiemes(int tantiemes);
 
@@ -583,17 +590,17 @@ public class Main2 {
 			Group createGroup();
 
 			static interface Group {
-				Calculation part(double value);
+				Calculation part(Value<Double> value);
 			}
 
 			static class Base implements Factory {
 				@Override
-				public Calculation resource(String resourceKey, double value) {
+				public Calculation resource(String resourceKey, Value<Double> value) {
 					requireNonNull(resourceKey);
 					return source -> {
 						requireNonNull(source);
 						BigDecimal ref = source.resource(resourceKey).orElseThrow(() -> new IllegalArgumentException("No " + resourceKey + " in " + source));
-						BigDecimal ratio = BigDecimal.valueOf(value).divide(ref);
+						BigDecimal ratio = BigDecimal.valueOf(value.get()).divide(ref);
 						return source.multiply(ratio);
 					};
 				}
@@ -620,19 +627,24 @@ public class Main2 {
 				@Override
 				public Group createGroup() {
 					var total = new Object() {
-						BigDecimal value = BigDecimal.ZERO;
+						Supplier<BigDecimal> value = () -> BigDecimal.ZERO;
 					};
 					return new Group() {
 						@Override
-						public Calculation part(double value) {
-							BigDecimal bigValue = BigDecimal.valueOf(value);
-							total.value = total.value.add(bigValue);
+						public Calculation part(Value<Double> value) {
+							Supplier<BigDecimal> delayedComputer = cache(() -> {
+								BigDecimal bigValue = BigDecimal.valueOf(value.get());
+								return bigValue;
+							});
+							Supplier<BigDecimal> oldValue = total.value;
+							total.value = cache(() -> oldValue.get().add(delayedComputer.get()));
 							return source -> {
+								BigDecimal bigValue = delayedComputer.get();
 								// TODO Align with other constraints?
-								if (total.value.compareTo(BigDecimal.ZERO) <= 0) {
+								if (total.value.get().compareTo(BigDecimal.ZERO) <= 0) {
 									throw new IllegalArgumentException("No amount in " + this);
 								}
-								BigDecimal ratio = bigValue.divide(total.value);
+								BigDecimal ratio = bigValue.divide(total.value.get());
 								return source.multiply(ratio);
 							};
 						}
@@ -890,5 +902,9 @@ public class Main2 {
 				return value;
 			}
 		};
+	}
+	
+	static interface Value<T> {
+		T get();
 	}
 }
