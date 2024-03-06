@@ -211,7 +211,6 @@ public class Main2 {
 				}
 			}
 			Variables variables = new Variables();
-			;
 			String ecs32Var = "ecs32";
 			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(setECS.part(() -> variables.get(ecs32Var)));// TODO Dispatch up
 			String eauPotableChaudeLot33 = "Eau.Potable.Chaude.lot33";
@@ -641,24 +640,22 @@ public class Main2 {
 				@Override
 				public Group createGroup() {
 					var total = new Object() {
-						Supplier<BigDecimal> value = () -> BigDecimal.ZERO;
+						Supplier<BigDecimal> supplier = () -> BigDecimal.ZERO;
 					};
 					return new Group() {
 						@Override
 						public Calculation part(Value<Double> value) {
-							Supplier<BigDecimal> delayedComputer = cache(() -> {
-								BigDecimal bigValue = BigDecimal.valueOf(value.get());
-								return bigValue;
-							});
-							Supplier<BigDecimal> oldValue = total.value;
-							total.value = cache(() -> oldValue.get().add(delayedComputer.get()));
+							Supplier<BigDecimal> partSupplier = () -> BigDecimal.valueOf(value.get());
+							Supplier<BigDecimal> oldTotalSupplier = total.supplier;
+							total.supplier = () -> oldTotalSupplier.get().add(partSupplier.get());
 							return source -> {
-								BigDecimal bigValue = delayedComputer.get();
+								BigDecimal partValue = partSupplier.get();
 								// TODO Align with other constraints?
-								if (total.value.get().compareTo(BigDecimal.ZERO) <= 0) {
-									throw new IllegalArgumentException("No amount in " + this);
+								BigDecimal totalValue = total.supplier.get();
+								if (totalValue.compareTo(BigDecimal.ZERO) <= 0) {
+									throw new IllegalStateException("No amount in " + this);
 								}
-								BigDecimal ratio = bigValue.divide(total.value.get());
+								BigDecimal ratio = partValue.divide(totalValue);
 								return source.multiply(ratio);
 							};
 						}
