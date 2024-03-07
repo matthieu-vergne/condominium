@@ -160,37 +160,31 @@ public class Main2 {
 			/* STATIC SOURCE & STATIC INFO */
 			String eauPotableFroideLot32 = "Eau.Potable.Froide.lot32";
 			partialModel.dispatch(eauPotableFroideLot32).to(lot32).taking(calc.everything());
-			String eau32Var = "eau32";
-			Calculation eau32 = calc.resource(waterKey, variables.valueOf(eau32Var));
+			Calculation eau32 = calc.resource(waterKey, variables.valueOf(eauPotableFroideLot32));
 
 			String eauPotableFroideLot33 = "Eau.Potable.Froide.lot33";
 			partialModel.dispatch(eauPotableFroideLot33).to(lot33).taking(calc.everything());
-			String eau33Var = "eau33";
-			Calculation eau33 = calc.resource(waterKey, variables.valueOf(eau33Var));
+			Calculation eau33 = calc.resource(waterKey, variables.valueOf(eauPotableFroideLot33));
 
 			Calculation.Factory.Group setECS = calc.createGroup();
 
 			String eauPotableChaudeLot32 = "Eau.Potable.Chaude.lot32";
 			partialModel.dispatch(eauPotableChaudeLot32).to(lot32).taking(calc.everything());
-			String ecs32Var = "ecs32";
-			Calculation ecs32 = setECS.part(variables.valueOf(ecs32Var));
+			Calculation ecs32 = setECS.part(variables.valueOf(eauPotableChaudeLot32));
 
 			String eauPotableChaudeLot33 = "Eau.Potable.Chaude.lot33";
 			partialModel.dispatch(eauPotableChaudeLot33).to(lot33).taking(calc.everything());
-			String ecs33Var = "ecs33";
-			Calculation ecs33 = setECS.part(variables.valueOf(ecs33Var));
+			Calculation ecs33 = setECS.part(variables.valueOf(eauPotableChaudeLot33));
 
 			Calculation.Factory.Group setCal = calc.createGroup();
 
 			String elecCalorifiqueLot32 = "Elec.Calorifique.lot32";
 			partialModel.dispatch(elecCalorifiqueLot32).to(lot32).taking(calc.everything());
-			String cal32Var = "cal32";
-			Calculation cal32 = setCal.part(variables.valueOf(cal32Var));
+			Calculation cal32 = setCal.part(variables.valueOf(elecCalorifiqueLot32));
 
 			String elecCalorifiqueLot33 = "Elec.Calorifique.lot33";
 			partialModel.dispatch(elecCalorifiqueLot33).to(lot33).taking(calc.everything());
-			String cal33Var = "cal33";
-			Calculation cal33 = setCal.part(variables.valueOf(cal33Var));
+			Calculation cal33 = setCal.part(variables.valueOf(elecCalorifiqueLot33));
 
 			// TODO Retrieve lots tantiemes from CSV
 			String tantièmesPcs3 = "Tantiemes.PCS3";
@@ -236,10 +230,9 @@ public class Main2 {
 			/* STATIC SOURCE & DYNAMIC INFO */
 
 			String eauPotableChaufferie = "Eau.Potable.chaufferie";
-			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, variables.valueOf(ecs32Var)));
-			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, variables.valueOf(ecs33Var)));
-			String eauChaufferieVar = "eauChaufferie";
-			Calculation eauChaufferie = calc.resource(waterKey, variables.valueOf(eauChaufferieVar));
+			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot32)));
+			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot33)));
+			Calculation eauChaufferie = calc.resource(waterKey, variables.valueOf(eauPotableChaufferie));
 
 			String eauPotableGeneral = "Eau.Potable.general";
 			partialModel.dispatch(eauPotableGeneral).to(eauPotableChaufferie).taking(eauChaufferie);
@@ -249,37 +242,31 @@ public class Main2 {
 			String elecChaufferieAutre = "Elec.Chaufferie.autre";
 			partialModel.dispatch(elecChaufferieAutre).to(elecChaufferieAutreMesures).taking(calc.ratio(0.5));
 			partialModel.dispatch(elecChaufferieAutre).to(elecChaufferieAutreTantiemes).taking(calc.ratio(0.5));
-			String mwhChaufferieAutreVar = "mwhChaufferieAutre";
-			Calculation mwhChaufferieAutre = calc.resource(mwhKey, variables.valueOf(mwhChaufferieAutreVar));
+			Calculation mwhChaufferieAutre = calc.resource(mwhKey, variables.valueOf(elecChaufferieAutre));
 
 			String elecChaufferieCombustibleRC = "Elec.Chaufferie.combustibleRC";
 			partialModel.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCTantiemes).taking(calc.ratio(0.3));
 			partialModel.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCCompteurs).taking(calc.ratio(0.7));
-			String mwhChaufferieCombustibleRcVar = "mwhChaufferieCombustibleRC";
-			Calculation elecChaufferieCombustibleRc = calc.resource(mwhKey, variables.valueOf(mwhChaufferieCombustibleRcVar));
+			Calculation elecChaufferieCombustibleRc = calc.resource(mwhKey, variables.valueOf(elecChaufferieCombustibleRC));
 
 			String elecChaufferieCombustibleECS = "Elec.Chaufferie.combustibleECS";
 			partialModel.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSTantiemes).taking(calc.ratio(0.3));
 			partialModel.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSCompteurs).taking(calc.ratio(0.7));
-			String mwhChaufferieCombustibleEcsVar = "mwhChaufferieCombustibleECS";
-			Calculation elecChaufferieCombustibleEcs = calc.resource(mwhKey, variables.valueOf(mwhChaufferieCombustibleEcsVar));
+			Calculation elecChaufferieCombustibleEcs = calc.resource(mwhKey, variables.valueOf(elecChaufferieCombustibleECS));
 
 			String elecChaufferieCombustible = "Elec.Chaufferie.combustible";
 			partialModel.dispatch(elecChaufferieCombustible).to(elecChaufferieCombustibleECS).taking(elecChaufferieCombustibleEcs);
 			partialModel.dispatch(elecChaufferieCombustible).to(elecChaufferieCombustibleRC).taking(elecChaufferieCombustibleRc);
-			String mwhChaufferieCombustibleVar = "mwhChaufferieCombustible";
-			Calculation mwhChaufferieCombustible = calc.resource(mwhKey, variables.valueOf(mwhChaufferieCombustibleVar));
+			Calculation mwhChaufferieCombustible = calc.resource(mwhKey, variables.valueOf(elecChaufferieCombustible));
 
 			String elecChaufferieGeneral = "Elec.Chaufferie.general";
 			partialModel.dispatch(elecChaufferieGeneral).to(elecChaufferieCombustible).taking(mwhChaufferieCombustible);
 			partialModel.dispatch(elecChaufferieGeneral).to(elecChaufferieAutre).taking(mwhChaufferieAutre);
-			String mwhChaufferieVar = "mwhChaufferie";
-			Calculation mwhChaufferie = calc.resource(mwhKey, variables.valueOf(mwhChaufferieVar));
+			Calculation mwhChaufferie = calc.resource(mwhKey, variables.valueOf(elecChaufferieGeneral));
 
 			String elecTgbtAscenseurBoussole = "Elec.TGBT.ascenseur_boussole";
 			partialModel.dispatch(elecTgbtAscenseurBoussole).to(tantièmesPcs3).taking(calc.everything());
-			String mwhTgbtAscenseurBoussoleVar = "mwhTgbtAscenseurBoussole";
-			Calculation mwhTgbtAscenseurBoussole = calc.resource(mwhKey, variables.valueOf(mwhTgbtAscenseurBoussoleVar));
+			Calculation mwhTgbtAscenseurBoussole = calc.resource(mwhKey, variables.valueOf(elecTgbtAscenseurBoussole));
 
 			String elecTgbtGeneral = "Elec.TGBT.general";
 			partialModel.dispatch(elecTgbtGeneral).to(elecTgbtAscenseurBoussole).taking(mwhTgbtAscenseurBoussole);
@@ -304,21 +291,21 @@ public class Main2 {
 
 			/* VARIABLES */
 
-			variables.set(eau32Var, 0.1);
-			variables.set(eau33Var, 0.1);
-			variables.set(eauChaufferieVar, 50.0);
-			variables.set(ecs32Var, 10.0);
-			variables.set(ecs33Var, 10.0);
+			variables.set(eauPotableFroideLot32, 0.1);
+			variables.set(eauPotableFroideLot33, 0.1);
+			variables.set(eauPotableChaufferie, 50.0);
+			variables.set(eauPotableChaudeLot32, 10.0);
+			variables.set(eauPotableChaudeLot33, 10.0);
 
-			variables.set(mwhTgbtAscenseurBoussoleVar, 10.0);
-			variables.set(mwhChaufferieVar, 50.0);
-			variables.set(mwhChaufferieCombustibleVar, 30.0);
-			variables.set(mwhChaufferieCombustibleEcsVar, 15.0);
-			variables.set(mwhChaufferieCombustibleRcVar, 15.0);
-			variables.set(mwhChaufferieAutreVar, 20.0);
+			variables.set(elecTgbtAscenseurBoussole, 10.0);
+			variables.set(elecChaufferieGeneral, 50.0);
+			variables.set(elecChaufferieCombustible, 30.0);
+			variables.set(elecChaufferieCombustibleECS, 15.0);
+			variables.set(elecChaufferieCombustibleRC, 15.0);
+			variables.set(elecChaufferieAutre, 20.0);
 
-			variables.set(cal32Var, 0.1);
-			variables.set(cal33Var, 0.1);
+			variables.set(elecCalorifiqueLot32, 0.1);
+			variables.set(elecCalorifiqueLot33, 0.1);
 
 			Graph.Instance graphInstance = partialModel.instantiate();
 
