@@ -15,6 +15,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -61,6 +63,8 @@ import net.sourceforge.plantuml.classdiagram.command.CommandCreateElementFull2.M
 
 public class Main2 {
 	private static final Consumer<Object> LOGGER = System.out::println;
+	private static final int SCALE_COMPUTATION = 20;
+	private static final int SCALE_CHECK = 10;
 
 	public static void main(String[] args) throws IOException {
 		Path importFolderPath = Paths.get(System.getProperty("importFolder"));
@@ -117,17 +121,17 @@ public class Main2 {
 				}
 
 				@Override
-				public Calculation resource(String resourceKey, Value<Double> value) {
+				public Calculation resource(String resourceKey, Value<BigDecimal> value) {
 					return new EnrichedCalculation(factory.resource(resourceKey, value), resourceModes.get(resourceKey), value);
 				}
 
 				@Override
 				public Calculation everything() {
-					return new EnrichedCalculation(factory.everything(), Mode.RATIO, () -> 1.0);
+					return new EnrichedCalculation(factory.everything(), Mode.RATIO, () -> BigDecimal.ONE);
 				}
 
 				@Override
-				public Calculation ratio(double ratio) {
+				public Calculation ratio(BigDecimal ratio) {
 					return new EnrichedCalculation(factory.ratio(ratio), Mode.RATIO, () -> ratio);
 				}
 
@@ -141,7 +145,7 @@ public class Main2 {
 					Calculation.Factory.Group group = factory.createGroup();
 					return new Calculation.Factory.Group() {
 						@Override
-						public Calculation part(Value<Double> value) {
+						public Calculation part(Value<BigDecimal> value) {
 							return new EnrichedCalculation(group.part(value), Mode.SET, value);
 						}
 					};
@@ -156,6 +160,7 @@ public class Main2 {
 			// TODO Retrieve lots from CSV
 			String lot32 = "Lot.32";
 			String lot33 = "Lot.33";
+			String lotOthers = "Lot.xx";
 
 			/* STATIC SOURCE & STATIC INFO */
 			String eauPotableFroideLot32 = "Eau.Potable.Froide.lot32";
@@ -190,18 +195,22 @@ public class Main2 {
 			String tantièmesPcs3 = "Tantiemes.PCS3";
 			partialModel.dispatch(tantièmesPcs3).to(lot32).taking(calc.tantiemes(317));
 			partialModel.dispatch(tantièmesPcs3).to(lot33).taking(calc.tantiemes(449));
+			partialModel.dispatch(tantièmesPcs3).to(lotOthers).taking(calc.tantiemes(10000 - 317 - 449));
 
 			String tantièmesPcs4 = "Tantiemes.PCS4";
 			partialModel.dispatch(tantièmesPcs4).to(lot32).taking(calc.tantiemes(347));
 			partialModel.dispatch(tantièmesPcs4).to(lot33).taking(calc.tantiemes(494));
+			partialModel.dispatch(tantièmesPcs4).to(lotOthers).taking(calc.tantiemes(10000 - 347 - 494));
 
 			String tantièmesChauffage = "Tantiemes.ECS_Chauffage";
 			partialModel.dispatch(tantièmesChauffage).to(lot32).taking(calc.tantiemes(127));
 			partialModel.dispatch(tantièmesChauffage).to(lot33).taking(calc.tantiemes(179));
+			partialModel.dispatch(tantièmesChauffage).to(lotOthers).taking(calc.tantiemes(10000 - 127 - 179));
 
 			String tantièmesRafraichissement = "Tantiemes.Rafraichissement";
 			partialModel.dispatch(tantièmesRafraichissement).to(lot32).taking(calc.tantiemes(182));
 			partialModel.dispatch(tantièmesRafraichissement).to(lot33).taking(calc.tantiemes(256));
+			partialModel.dispatch(tantièmesRafraichissement).to(lotOthers).taking(calc.tantiemes(10000 - 182 - 256));
 
 			// TODO Retrieve distribution from CSV
 			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";
@@ -212,16 +221,16 @@ public class Main2 {
 			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(ecs33);
 
 			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";
-			partialModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantièmesChauffage).taking(calc.ratio(0.5));
-			partialModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantièmesRafraichissement).taking(calc.ratio(0.5));
+			partialModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantièmesChauffage).taking(calc.ratio(new BigDecimal("0.5")));
+			partialModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantièmesRafraichissement).taking(calc.ratio(new BigDecimal("0.5")));
 
 			String elecChaufferieCombustibleRCCompteurs = "Elec.Chaufferie.combustibleRCCompteurs";
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot32).taking(cal32);
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot33).taking(cal33);
 
 			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";
-			partialModel.dispatch(elecChaufferieAutreTantiemes).to(tantièmesChauffage).taking(calc.ratio(0.5));
-			partialModel.dispatch(elecChaufferieAutreTantiemes).to(tantièmesRafraichissement).taking(calc.ratio(0.5));
+			partialModel.dispatch(elecChaufferieAutreTantiemes).to(tantièmesChauffage).taking(calc.ratio(new BigDecimal("0.5")));
+			partialModel.dispatch(elecChaufferieAutreTantiemes).to(tantièmesRafraichissement).taking(calc.ratio(new BigDecimal("0.5")));
 
 			String elecChaufferieAutreMesures = "Elec.Chaufferie.autreMesures";
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot32).taking(cal32);
@@ -240,18 +249,18 @@ public class Main2 {
 			partialModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot33).taking(eau33);
 
 			String elecChaufferieAutre = "Elec.Chaufferie.autre";
-			partialModel.dispatch(elecChaufferieAutre).to(elecChaufferieAutreMesures).taking(calc.ratio(0.5));
-			partialModel.dispatch(elecChaufferieAutre).to(elecChaufferieAutreTantiemes).taking(calc.ratio(0.5));
+			partialModel.dispatch(elecChaufferieAutre).to(elecChaufferieAutreMesures).taking(calc.ratio(new BigDecimal("0.5")));
+			partialModel.dispatch(elecChaufferieAutre).to(elecChaufferieAutreTantiemes).taking(calc.ratio(new BigDecimal("0.5")));
 			Calculation mwhChaufferieAutre = calc.resource(mwhKey, variables.valueOf(elecChaufferieAutre));
 
 			String elecChaufferieCombustibleRC = "Elec.Chaufferie.combustibleRC";
-			partialModel.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCTantiemes).taking(calc.ratio(0.3));
-			partialModel.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCCompteurs).taking(calc.ratio(0.7));
+			partialModel.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCTantiemes).taking(calc.ratio(new BigDecimal("0.3")));
+			partialModel.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCCompteurs).taking(calc.ratio(new BigDecimal("0.7")));
 			Calculation elecChaufferieCombustibleRc = calc.resource(mwhKey, variables.valueOf(elecChaufferieCombustibleRC));
 
 			String elecChaufferieCombustibleECS = "Elec.Chaufferie.combustibleECS";
-			partialModel.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSTantiemes).taking(calc.ratio(0.3));
-			partialModel.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSCompteurs).taking(calc.ratio(0.7));
+			partialModel.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSTantiemes).taking(calc.ratio(new BigDecimal("0.3")));
+			partialModel.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSCompteurs).taking(calc.ratio(new BigDecimal("0.7")));
 			Calculation elecChaufferieCombustibleEcs = calc.resource(mwhKey, variables.valueOf(elecChaufferieCombustibleECS));
 
 			String elecChaufferieCombustible = "Elec.Chaufferie.combustible";
@@ -274,40 +283,44 @@ public class Main2 {
 
 			/* DYNAMIC SOURCE & DYNAMIC INFO */
 
+			String nextExercize = "Facture.2024";
+
 			// TODO Create variables? Assignments here
 			String factureElec = "Facture.Elec";
-			partialModel.assign(factureElec, mwhKey, 100.0);
-			partialModel.assign(factureElec, eurosKey, 1000.0);
-			partialModel.dispatch(factureElec).to(elecTgbtGeneral).taking(calc.resource(mwhKey, 100.0));
+			partialModel.assign(factureElec, mwhKey, new BigDecimal("100.0"));
+			partialModel.assign(factureElec, eurosKey, new BigDecimal("1000.0"));
+			partialModel.dispatch(factureElec).to(elecTgbtGeneral).taking(calc.resource(mwhKey, new BigDecimal("60.0")));
+			partialModel.dispatch(factureElec).to(nextExercize).taking(calc.resource(mwhKey, new BigDecimal("40.0")));
 
 			String factureWater = "Facture.Eau";
-			partialModel.assign(factureWater, waterKey, 100.0);
-			partialModel.assign(factureWater, eurosKey, 1000.0);
-			partialModel.dispatch(factureWater).to(eauPotableGeneral).taking(calc.resource(waterKey, 100.0));
+			partialModel.assign(factureWater, waterKey, new BigDecimal("100.0"));
+			partialModel.assign(factureWater, eurosKey, new BigDecimal("1000.0"));
+			partialModel.dispatch(factureWater).to(eauPotableGeneral).taking(calc.resource(waterKey, new BigDecimal("20.2")));
+			partialModel.dispatch(factureWater).to(nextExercize).taking(calc.resource(waterKey, new BigDecimal("79.8")));
 
 			String facturePoubellesBoussole = "Facture.PoubelleBoussole";
-			partialModel.assign(facturePoubellesBoussole, eurosKey, 100.0);
+			partialModel.assign(facturePoubellesBoussole, eurosKey, new BigDecimal("100.0"));
 			partialModel.dispatch(facturePoubellesBoussole).to(tantièmesPcs4).taking(calc.everything());
 
 			/* VARIABLES */
 
-			variables.set(eauPotableFroideLot32, 0.1);
-			variables.set(eauPotableFroideLot33, 0.1);
-			variables.set(eauPotableChaufferie, 50.0);
-			variables.set(eauPotableChaudeLot32, 10.0);
-			variables.set(eauPotableChaudeLot33, 10.0);
+			variables.set(eauPotableFroideLot32, new BigDecimal("0.1"));
+			variables.set(eauPotableFroideLot33, new BigDecimal("0.1"));
+			variables.set(eauPotableChaufferie, new BigDecimal("20.0"));
+			variables.set(eauPotableChaudeLot32, new BigDecimal("10.0"));
+			variables.set(eauPotableChaudeLot33, new BigDecimal("10.0"));
 
-			variables.set(elecTgbtAscenseurBoussole, 10.0);
-			variables.set(elecChaufferieGeneral, 50.0);
-			variables.set(elecChaufferieCombustible, 30.0);
-			variables.set(elecChaufferieCombustibleECS, 15.0);
-			variables.set(elecChaufferieCombustibleRC, 15.0);
-			variables.set(elecChaufferieAutre, 20.0);
+			variables.set(elecTgbtAscenseurBoussole, new BigDecimal("10.0"));
+			variables.set(elecChaufferieGeneral, new BigDecimal("50.0"));
+			variables.set(elecChaufferieCombustible, new BigDecimal("30.0"));
+			variables.set(elecChaufferieCombustibleECS, new BigDecimal("15.0"));
+			variables.set(elecChaufferieCombustibleRC, new BigDecimal("15.0"));
+			variables.set(elecChaufferieAutre, new BigDecimal("20.0"));
 
-			variables.set(elecCalorifiqueLot32, 0.1);
-			variables.set(elecCalorifiqueLot33, 0.1);
+			variables.set(elecCalorifiqueLot32, new BigDecimal("0.1"));
+			variables.set(elecCalorifiqueLot33, new BigDecimal("0.1"));
 
-			Graph.Instance graphInstance = partialModel.instantiate();
+			Graph.Instance graphInstance = partialModel.instantiate(resourceKeys);
 
 			String title = "Charges";// "Charges " + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now());
 
@@ -344,15 +357,15 @@ public class Main2 {
 						Number value = enrichedCalculation.value().get();
 						String calculationString = switch (mode) {
 						case RATIO:
-							yield ((double) value * 100) + " %";
+							yield ((BigDecimal) value).multiply(new BigDecimal("100")) + " %";
 						case TANTIEMES:
 							yield (int) value + " t";
 						case MWH:
-							yield (double) value + " " + resourceRenderer.get(mwhKey);
+							yield (BigDecimal) value + " " + resourceRenderer.get(mwhKey);
 						case WATER:
-							yield (double) value + " " + resourceRenderer.get(waterKey);
+							yield (BigDecimal) value + " " + resourceRenderer.get(waterKey);
 						case SET:
-							yield (double) value + " from set";
+							yield (BigDecimal) value + " from set";
 						};
 						scriptStream.println(link.source().id().value() + " --> " + link.target().id().value() + " : " + calculationString);
 					});
@@ -608,8 +621,12 @@ public class Main2 {
 				};
 			}
 
-			default Resources multiply(BigDecimal ratio) {
-				return resourceKey -> resource(resourceKey).map(value -> value.multiply(ratio));
+			default Resources subtract(Resources subtracted) {
+				return subtracted.multiply(new BigDecimal("-1")).add(this);
+			}
+
+			default Resources multiply(BigDecimal multiplier) {
+				return resourceKey -> resource(resourceKey).map(value -> value.multiply(multiplier));
 			}
 
 			static Resources createEmpty() {
@@ -618,32 +635,33 @@ public class Main2 {
 		}
 
 		static interface Factory {
-			Calculation resource(String resourceKey, Value<Double> value);
+			Calculation resource(String resourceKey, Value<BigDecimal> value);
 
-			default Calculation resource(String resourceKey, double value) {
+			default Calculation resource(String resourceKey, BigDecimal value) {
 				return resource(resourceKey, () -> value);
 			}
 
 			Calculation tantiemes(int tantiemes);
 
-			Calculation ratio(double ratio);
+			Calculation ratio(BigDecimal ratio);
 
 			Calculation everything();
 
 			Group createGroup();
 
 			static interface Group {
-				Calculation part(Value<Double> value);
+				Calculation part(Value<BigDecimal> value);
 			}
 
 			static class Base implements Factory {
+
 				@Override
-				public Calculation resource(String resourceKey, Value<Double> value) {
+				public Calculation resource(String resourceKey, Value<BigDecimal> value) {
 					requireNonNull(resourceKey);
 					return source -> {
 						requireNonNull(source);
 						BigDecimal ref = source.resource(resourceKey).orElseThrow(() -> new IllegalArgumentException("No " + resourceKey + " in " + source));
-						BigDecimal ratio = BigDecimal.valueOf(value.get()).divide(ref);
+						BigDecimal ratio = value.get().divide(ref, SCALE_COMPUTATION, RoundingMode.HALF_EVEN);
 						return source.multiply(ratio);
 					};
 				}
@@ -654,16 +672,15 @@ public class Main2 {
 				}
 
 				@Override
-				public Calculation ratio(double ratio) {
-					BigDecimal bigRatio = BigDecimal.valueOf(ratio);
-					return source -> source.multiply(bigRatio);
+				public Calculation ratio(BigDecimal ratio) {
+					return source -> source.multiply(ratio);
 				}
 
 				@Override
 				public Calculation tantiemes(int tantiemes) {
 					// TODO Use group
 					// TODO Constrain group sum to be 10k
-					BigDecimal ratio = BigDecimal.valueOf(tantiemes).divide(BigDecimal.valueOf(10000));
+					BigDecimal ratio = new BigDecimal("" + tantiemes).divide(BigDecimal.valueOf(10000));
 					return source -> source.multiply(ratio);
 				}
 
@@ -674,8 +691,8 @@ public class Main2 {
 					};
 					return new Group() {
 						@Override
-						public Calculation part(Value<Double> value) {
-							Supplier<BigDecimal> partSupplier = () -> BigDecimal.valueOf(value.get());
+						public Calculation part(Value<BigDecimal> value) {
+							Supplier<BigDecimal> partSupplier = () -> value.get();
 							Supplier<BigDecimal> oldTotalSupplier = total.supplier;
 							total.supplier = () -> oldTotalSupplier.get().add(partSupplier.get());
 							return source -> {
@@ -703,7 +720,7 @@ public class Main2 {
 		static class Model implements Graph<Model.ID, Model.Relation> {
 			private final Collection<ID> ids = new LinkedHashSet<>();
 			private final List<Relation> relations = new LinkedList<>();
-			private final Map<Model.ID, Map<String, Double>> inputs = new HashMap<>();
+			private final Map<Model.ID, Map<String, BigDecimal>> inputs = new HashMap<>();
 
 			static record ID(String value) {
 				ID {
@@ -759,7 +776,7 @@ public class Main2 {
 				};
 			}
 
-			void assign(String source, String key, double value) {
+			void assign(String source, String key, BigDecimal value) {
 				requireNonNull(source);
 				requireNonNull(key);
 
@@ -780,17 +797,17 @@ public class Main2 {
 				});
 			}
 
-			Graph.Instance instantiate() {
+			Graph.Instance instantiate(Collection<String> resourceKeys) {
 				Map<Model.ID, Instance.Node> nodes = new HashMap<>();
 
 				Collection<Model.ID> inputIds = inputs.keySet();
 				inputIds.stream().forEach(id -> {
 					requireNonNull(id);
-					Map<String, Double> values = inputs.get(id);
+					Map<String, BigDecimal> values = inputs.get(id);
 					requireNonNull(values);
 					nodes.put(id, Instance.Node.create(id, resourceKey -> {
 						requireNonNull(resourceKey);
-						return Optional.ofNullable(values.get(resourceKey)).map(BigDecimal::valueOf);
+						return Optional.ofNullable(values.get(resourceKey));
 					}));
 				});
 
@@ -843,6 +860,23 @@ public class Main2 {
 										return new Instance.Link(source, calculation, nodes.get(targetId));
 									}).toList());
 						});
+
+				List<Instance.Node> nonLeafNodes = links.stream().map(Instance.Link::source).toList();
+				nonLeafNodes.stream().forEach(nonLeafNode -> {
+					Calculation.Resources nonLeafResources = nonLeafNode.resources();
+					Calculation.Resources consumed = links.stream()//
+							.filter(link -> link.source().equals(nonLeafNode))//
+							.map(Instance.Link::calculation)//
+							.map(calc -> calc.compute(nonLeafResources))//
+							.reduce(Calculation.Resources.createEmpty(), Calculation.Resources::add);
+					Calculation.Resources remaining = nonLeafResources.subtract(consumed);
+					for (String resourceKey : resourceKeys) {
+						BigDecimal resourceValue = remaining.resource(resourceKey).orElse(BigDecimal.ZERO);
+						if (resourceValue.abs().compareTo(new BigDecimal(BigInteger.ONE, SCALE_CHECK)) > 0) {
+							throw new IllegalStateException("Node " + nonLeafNode.id() + " " + resourceKey + " not fully consumed, remaining: " + resourceValue);
+						}
+					}
+				});
 
 				return new Instance(nodes.values(), links);
 			}
@@ -904,7 +938,9 @@ public class Main2 {
 
 				Optional<Double> get(String resourceKey);
 
-				static Node create(Model.ID id, Calculation.Resources resourceProvider) {
+				Calculation.Resources resources();
+
+				static Node create(Model.ID id, Calculation.Resources resources) {
 					return new Node() {
 						@Override
 						public Model.ID id() {
@@ -912,8 +948,13 @@ public class Main2 {
 						}
 
 						@Override
+						public Calculation.Resources resources() {
+							return resources;
+						}
+
+						@Override
 						public Optional<Double> get(String resourceKey) {
-							return resourceProvider.resource(resourceKey).map(BigDecimal::doubleValue);
+							return resources.resource(resourceKey).map(BigDecimal::doubleValue);
 						}
 					};
 				}
@@ -950,9 +991,9 @@ public class Main2 {
 	}
 
 	static class Variables {
-		Map<String, Double> values = new HashMap<>();
+		Map<String, BigDecimal> values = new HashMap<>();
 
-		public double get(String variable) {
+		public BigDecimal get(String variable) {
 			return values.compute(variable, (key, value) -> {
 				if (value == null) {
 					throw new IllegalArgumentException("No value for variable: " + variable);
@@ -961,7 +1002,7 @@ public class Main2 {
 			});
 		}
 
-		public void set(String variable, double value) {
+		public void set(String variable, BigDecimal value) {
 			values.compute(variable, (key, oldValue) -> {
 				if (oldValue != null) {
 					throw new IllegalArgumentException("Variable " + variable + " set with " + oldValue + ", cannot set: " + value);
@@ -970,7 +1011,7 @@ public class Main2 {
 			});
 		}
 
-		public Value<Double> valueOf(String variable) {
+		public Value<BigDecimal> valueOf(String variable) {
 			return () -> get(variable);
 		}
 	}
