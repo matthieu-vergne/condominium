@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -138,13 +139,15 @@ public class Main2 {
 
 				public Calculation.Factory.Group createRatioGroup() {
 					Group group = createGroup(Mode.RATIO);
-					group.constrains(mustSumUpTo(new BigDecimal("1")));
+					group.constrainsValue(isBetween(BigDecimal.ZERO, BigDecimal.ONE));
+					group.constrainsTotal(sumsUpTo(new BigDecimal("1")));
 					return group;
 				}
 
 				public Calculation.Factory.Group createTantiemesGroup() {
 					Group group = createGroup(Mode.TANTIEMES);
-					group.constrains(mustSumUpTo(new BigDecimal("10000")));
+					group.constrainsValue(isAtLeast(BigDecimal.ZERO));
+					group.constrainsTotal(sumsUpTo(new BigDecimal("10000")));
 					return group;
 				}
 
@@ -157,8 +160,13 @@ public class Main2 {
 						}
 
 						@Override
-						public void constrains(Consumer<BigDecimal> validator) {
-							group.constrains(validator);
+						public void constrainsValue(BiConsumer<BigDecimal, IllegalArgumentException> validator) {
+							group.constrainsValue(validator);
+						}
+
+						@Override
+						public void constrainsTotal(Consumer<BigDecimal> validator) {
+							group.constrainsTotal(validator);
 						}
 					};
 				}
@@ -423,7 +431,27 @@ public class Main2 {
 
 	}
 
-	public static Consumer<BigDecimal> mustSumUpTo(BigDecimal goal) {
+	public static BiConsumer<BigDecimal, IllegalArgumentException> isBetween(BigDecimal min, BigDecimal max) {
+		return isAtLeast(min).andThen(isAtMost(max));
+	}
+
+	public static BiConsumer<BigDecimal, IllegalArgumentException> isAtLeast(BigDecimal min) {
+		return (value, cause) -> {
+			if (value.compareTo(min) < 0) {
+				throw new IllegalStateException(value + " is below " + min, cause);
+			}
+		};
+	}
+
+	public static BiConsumer<BigDecimal, IllegalArgumentException> isAtMost(BigDecimal max) {
+		return (value, cause) -> {
+			if (value.compareTo(max) > 0) {
+				throw new IllegalStateException(value + " is above " + max, cause);
+			}
+		};
+	}
+
+	public static Consumer<BigDecimal> sumsUpTo(BigDecimal goal) {
 		IllegalStateException cause = new IllegalStateException("Must sum up to: " + goal);
 		return (total) -> {
 			if (!ComputationUtil.isPracticallyZero(total.subtract(goal))) {
@@ -692,7 +720,9 @@ public class Main2 {
 					return part(BigInteger.valueOf(value));
 				}
 
-				void constrains(Consumer<BigDecimal> validator);
+				void constrainsValue(BiConsumer<BigDecimal, IllegalArgumentException> validator);
+
+				void constrainsTotal(Consumer<BigDecimal> validator);
 			}
 
 			static class Base implements Factory {
@@ -706,8 +736,11 @@ public class Main2 {
 				@Override
 				public Calculation resource(String resourceKey, Value<BigDecimal> value) {
 					requireNonNull(resourceKey);
+					IllegalArgumentException cause = new IllegalArgumentException("Invalid value");
+					var validator = isAtLeast(BigDecimal.ZERO);
 					return source -> {
 						requireNonNull(source);
+						validator.accept(value.get(), cause);
 						BigDecimal ref = source.resource(resourceKey).orElseThrow(() -> new IllegalArgumentException("No " + resourceKey + " in " + source));
 						BigDecimal ratio = ComputationUtil.divide(value.get(), ref);
 						return source.multiply(ratio);
@@ -721,34 +754,46 @@ public class Main2 {
 
 				@Override
 				public Group createGroup() {
-					var total = new Object() {
-						Supplier<BigDecimal> supplier = () -> BigDecimal.ZERO;
+					var data = new Object() {
+						Supplier<BigDecimal> totalSupplier = () -> BigDecimal.ZERO;
+						Map<IllegalArgumentException, Value<BigDecimal>> values = new HashMap<>();
 					};
 					Group group = new Group() {
 						@Override
 						public Calculation part(Value<BigDecimal> value) {
+							IllegalArgumentException potentialInvalidCause = new IllegalArgumentException("Invalid value");
+							data.values.put(potentialInvalidCause, value);
 							Supplier<BigDecimal> partSupplier = () -> value.get();
-							Supplier<BigDecimal> oldTotalSupplier = total.supplier;
-							total.supplier = () -> oldTotalSupplier.get().add(partSupplier.get());
+							Supplier<BigDecimal> oldTotalSupplier = data.totalSupplier;
+							data.totalSupplier = () -> oldTotalSupplier.get().add(partSupplier.get());
 							return source -> {
 								BigDecimal partValue = partSupplier.get();
-								BigDecimal totalValue = total.supplier.get();
+								BigDecimal totalValue = data.totalSupplier.get();
 								BigDecimal ratio = ComputationUtil.divide(partValue, totalValue);
 								return source.multiply(ratio);
 							};
 						}
 
 						@Override
-						public void constrains(Consumer<BigDecimal> validator) {
+						public void constrainsValue(BiConsumer<BigDecimal, IllegalArgumentException> validator) {
 							graphValidator.addValidator((graph, resourceKeys) -> {
-								validator.accept(total.supplier.get());
+								data.values.forEach((cause, value) -> {
+									validator.accept(value.get(), cause);
+								});
+							});
+						}
+
+						@Override
+						public void constrainsTotal(Consumer<BigDecimal> validator) {
+							graphValidator.addValidator((graph, resourceKeys) -> {
+								validator.accept(data.totalSupplier.get());
 							});
 						}
 					};
 
 					IllegalStateException exception = new IllegalStateException("No value in group " + group);
 					graphValidator.addValidator((graph, resourceKeys) -> {
-						if (ComputationUtil.isPracticallyZero(total.supplier.get())) {
+						if (ComputationUtil.isPracticallyZero(data.totalSupplier.get())) {
 							throw exception;
 						}
 					});
