@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
 import java.math.RoundingMode;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
@@ -139,14 +140,14 @@ public class Main2 {
 
 					EnrichedCalculation enrichedCalculation = enrich(calculation);
 					Mode mode = enrichedCalculation.mode;
-					if (mode.equals(Mode.RATIO)) {
-						Calculation absolute = newSource -> enrichedCalculation.delegate().compute(source);
-						EnrichedCalculation absolutedCalculation = new EnrichedCalculation(absolute, Mode.ABSOLUTE, null);
-						original.put(absolutedCalculation, enrichedCalculation);
-						return absolutedCalculation;
-					} else {
+					if (!List.of(Mode.RATIO, Mode.WATER, Mode.MWH).contains(mode)) {
 						throw new UnsupportedOperationException("Unsupported mode: " + mode);
 					}
+
+					Calculation absolute = newSource -> enrichedCalculation.delegate().compute(source);
+					EnrichedCalculation absolutedCalculation = new EnrichedCalculation(absolute, Mode.ABSOLUTE, null);
+					original.put(absolutedCalculation, enrichedCalculation);
+					return absolutedCalculation;
 				}
 
 				@Override
@@ -168,43 +169,58 @@ public class Main2 {
 							waitingProcessing.addAll(content);
 						}
 					}
+					Mode relativeMode = null;
 					for (EnrichedCalculation leaf : leafCalculation) {
 						EnrichedCalculation relative = original.get(leaf);
 						Mode mode = relative.mode();
-						if (mode.equals(Mode.RATIO)) {
-							continue;
-						} else {
+						if (!List.of(Mode.RATIO, Mode.WATER, Mode.MWH).contains(mode)) {
 							throw new UnsupportedOperationException("Not supported: " + mode);
 						}
+						if (relativeMode == null) {
+							relativeMode = mode;
+						} else if (!relativeMode.equals(mode)) {
+							throw new IllegalStateException("Incompatible modes: " + relativeMode + " vs. " + mode);
+						} else {
+							// Compatible modes so far
+						}
 					}
-					Resources resources = enrichedCalculation.compute(null);
-					BigDecimal ratio = resourceKeys.stream()//
-							.map(resourceKey -> {
-								Optional<BigDecimal> opt = resources.resource(resourceKey);
-								if (opt.isEmpty()) {
-									return Optional.<BigDecimal>empty();
-								}
-								BigDecimal keyValue = opt.get();
-								Optional<BigDecimal> opt2 = source.resource(resourceKey);
-								if (opt2.isEmpty()) {
-									throw new IllegalStateException("No resource " + resourceKey + " to consume, asking: " + keyValue);
-								}
-								BigDecimal keyTotal = opt2.get();
-								BigDecimal keyRatio = ComputationUtil.divide(keyValue, keyTotal);
-								return Optional.of(keyRatio);
-							})//
-							.filter(Optional::isPresent).map(Optional::get)//
-							.reduce((r1, r2) -> {
-								if (ComputationUtil.isPracticallyZero(r1.subtract(r2))) {
-									return r1;
-								} else {
-									throw new IllegalStateException("Incompatible ratios: " + r1 + " vs " + r2);
-								}
-							})//
-							.orElseThrow(() -> new IllegalStateException("No ratio computed for: " + calculation))//
-							.stripTrailingZeros();
 
-					return new EnrichedCalculation(src -> src.multiply(ratio), Mode.RATIO, () -> ratio);
+					if (relativeMode.equals(Mode.RATIO)) {
+						Resources resources = enrichedCalculation.compute(null);
+						BigDecimal ratio = resourceKeys.stream()//
+								.map(resourceKey -> {
+									Optional<BigDecimal> opt = resources.resource(resourceKey);
+									if (opt.isEmpty()) {
+										return Optional.<BigDecimal>empty();
+									}
+									BigDecimal keyValue = opt.get();
+									Optional<BigDecimal> opt2 = source.resource(resourceKey);
+									if (opt2.isEmpty()) {
+										throw new IllegalStateException("No resource " + resourceKey + " to consume, asking: " + keyValue);
+									}
+									BigDecimal keyTotal = opt2.get();
+									BigDecimal keyRatio = ComputationUtil.divide(keyValue, keyTotal);
+									return Optional.of(keyRatio);
+								})//
+								.filter(Optional::isPresent).map(Optional::get)//
+								.reduce((r1, r2) -> {
+									if (ComputationUtil.isPracticallyZero(r1.subtract(r2))) {
+										return r1;
+									} else {
+										throw new IllegalStateException("Incompatible ratios: " + r1 + " vs " + r2);
+									}
+								})//
+								.orElseThrow(() -> new IllegalStateException("No ratio computed for: " + calculation))//
+								.stripTrailingZeros();
+
+						return new EnrichedCalculation(src -> src.multiply(ratio), Mode.RATIO, () -> ratio);
+					} else if (relativeMode.equals(Mode.WATER)) {
+						Resources resources = enrichedCalculation.compute(null);
+						BigDecimal resource = resources.resource(waterKey).orElseThrow(() -> new IllegalStateException(Mode.WATER + " mode but no " + waterKey + " resource"));
+						return new EnrichedCalculation(src -> resources, Mode.WATER, () -> resource);
+					} else {
+						throw new UnsupportedOperationException("Not supported: " + relativeMode);
+					}
 				}
 
 				private final Map<EnrichedCalculation, List<EnrichedCalculation>> aggregates = new HashMap<>();
@@ -539,7 +555,7 @@ public class Main2 {
 			graphValidator.validate(graphInstance3);
 			// TODO Transform (reduce nodes of reduced links)
 			// TODO Recurse
-			Graph.Instance graphInstance4;
+			Graph.Instance graphInstance;
 			{
 				// TODO Search relevant nodes
 				// TODO Confirm they are those expected
@@ -566,7 +582,7 @@ public class Main2 {
 
 				graphInstance3.edges().forEach(link -> {
 					if (link.target().id().equals(new Graph.Model.ID(mergingLot1)) || link.target().id().equals(new Graph.Model.ID(mergingLot2))) {
-						data.newLinks.add(new Graph.Instance.Link(link.source(), link.calculation(), mergedNode));
+						data.absolutedLinks.add(new Graph.Instance.Link(link.source(), calc.absolute(link.calculation(), link.source().resources()), mergedNode));
 					} else if (link.source().id().equals(new Graph.Model.ID(mergingLot1)) || link.source().id().equals(new Graph.Model.ID(mergingLot2))) {
 						data.absolutedLinks.add(new Graph.Instance.Link(mergedNode, calc.absolute(link.calculation(), link.source().resources()), link.target()));
 					} else {
@@ -578,10 +594,8 @@ public class Main2 {
 						.map(link -> new Graph.Instance.Link(link.source(), calc.relativize(link.calculation(), link.source().resources()), link.target()))//
 						.forEach(data.newLinks::add);
 
-				graphInstance4 = new Graph.Instance(data.newNodes.values()::stream, data.newLinks::stream);
+				graphInstance = new Graph.Instance(data.newNodes.values()::stream, data.newLinks::stream);
 			}
-			graphValidator.validate(graphInstance4);
-			Graph.Instance graphInstance = reduceLinks(graphInstance4, calc);
 			graphValidator.validate(graphInstance);
 			// TODO Validate transformed graph
 
@@ -617,20 +631,20 @@ public class Main2 {
 						Calculation calculation = link.calculation();
 						EnrichedCalculation enrichedCalculation = enrichedCalculationFactory.enrich(calculation);
 						Mode mode = enrichedCalculation.mode();
-						BigDecimal value = enrichedCalculation.value().get();
+						BigDecimal value = enrichedCalculation.value().get().round(MathContext.DECIMAL64).stripTrailingZeros();
 						String calculationString = switch (mode) {
 						case RATIO:
-							yield value.multiply(new BigDecimal("100")) + " %";
+							yield value.multiply(new BigDecimal("100")).stripTrailingZeros().toPlainString() + " %";
 						case TANTIEMES:
-							yield value + " t";
+							yield value.toPlainString() + " t";
 						case MWH:
-							yield value + " " + resourceRenderer.get(mwhKey);
+							yield value.toPlainString() + " " + resourceRenderer.get(mwhKey);
 						case WATER:
-							yield value + " " + resourceRenderer.get(waterKey);
+							yield value.toPlainString() + " " + resourceRenderer.get(waterKey);
 						case SET:
-							yield value + " from set";
-						case ABSOLUTE:
-							yield "absolute " + format(link.calculation().compute(null), resourceKeys);
+							yield value.toPlainString() + " from set";
+						case ABSOLUTE:// FIXME REmove
+							throw new IllegalStateException("Not supposed to be here");
 						};
 						scriptStream.println(link.source().id().value() + " --> " + link.target().id().value() + " : " + calculationString);
 					});
