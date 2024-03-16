@@ -10,6 +10,8 @@ import static java.util.function.Predicate.not;
 import static java.util.stream.Collectors.counting;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.joining;
+import static java.util.stream.Collectors.mapping;
+import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
 import java.io.ByteArrayOutputStream;
@@ -551,52 +553,34 @@ public class Main2 {
 				graphInstance2 = new Graph.Instance(data.newNodes.values()::stream, data.newLinks::stream);
 			}
 			graphValidator.validate(graphInstance2);
-			Graph.Instance graphInstance3 = reduceLinks(graphInstance2, calc);
-			graphValidator.validate(graphInstance3);
-			// TODO Transform (reduce nodes of reduced links)
-			// TODO Recurse
-			Graph.Instance graphInstance;
-			{
-				// TODO Search relevant nodes
-				// TODO Confirm they are those expected
-				// TODO Generalize
-				String mergingLot1 = eauPotableFroideLot34;
-				String mergingLot2 = eauPotableFroideLotOthers;
-				String mergedLot = eauPotableFroideLotOthers;
-				var data = new Object() {
-					Map<String, Graph.Instance.Node> newNodes = new HashMap<>();
-					Collection<Graph.Instance.Link> newLinks = new LinkedList<>();
-					Calculation.Resources mergedResources = Calculation.Resources.createEmpty();
-					Collection<Graph.Instance.Link> absolutedLinks = new LinkedList<>();
-				};
 
-				graphInstance3.vertices().forEach(node -> {
-					if (node.id().equals(new Graph.Model.ID(mergingLot1)) || node.id().equals(new Graph.Model.ID(mergingLot2))) {
-						data.mergedResources = data.mergedResources.add(node.resources());
-					} else {
-						data.newNodes.put(node.id().value(), node);
-					}
-				});
-				Graph.Instance.Node mergedNode = Graph.Instance.Node.create(new Graph.Model.ID(mergedLot), data.mergedResources);
-				data.newNodes.put(mergedLot, mergedNode);
+			var data = new Object() {
+				Graph.Instance graph;
+			};
+			data.graph = graphInstance2;
 
-				graphInstance3.edges().forEach(link -> {
-					if (link.target().id().equals(new Graph.Model.ID(mergingLot1)) || link.target().id().equals(new Graph.Model.ID(mergingLot2))) {
-						data.absolutedLinks.add(new Graph.Instance.Link(link.source(), calc.absolute(link.calculation(), link.source().resources()), mergedNode));
-					} else if (link.source().id().equals(new Graph.Model.ID(mergingLot1)) || link.source().id().equals(new Graph.Model.ID(mergingLot2))) {
-						data.absolutedLinks.add(new Graph.Instance.Link(mergedNode, calc.absolute(link.calculation(), link.source().resources()), link.target()));
-					} else {
-						data.newLinks.add(link);
-					}
-				});
+			Function<List<Graph.Model.ID>, Graph.Model.ID> idMerger = ids -> ids.stream()//
+					.filter(id -> id.value().endsWith(".xx"))//
+					.findAny()//
+					.orElseThrow(() -> new UnsupportedOperationException("Other cases not implemented"));
+			var calls = new Object() {
+				boolean idMerger;
+			};
+			do {
+				data.graph = reduceLinks(data.graph, calc);
+				graphValidator.validate(data.graph);
+				calls.idMerger = false;
+				data.graph = reduceNodes(data.graph, calc, uponCalling(idMerger, (ids, mergedId) -> {
+					calls.idMerger = true;
+					System.out.println(mergedId);
+					ids.forEach(id -> {
+						System.out.println("  - " + id);
+					});
+				}));
+				graphValidator.validate(data.graph);
+			} while (calls.idMerger);
 
-				reduceLinks(data.absolutedLinks, calc).stream()//
-						.map(link -> new Graph.Instance.Link(link.source(), calc.relativize(link.calculation(), link.source().resources()), link.target()))//
-						.forEach(data.newLinks::add);
-
-				graphInstance = new Graph.Instance(data.newNodes.values()::stream, data.newLinks::stream);
-			}
-			graphValidator.validate(graphInstance);
+			Graph.Instance graphInstance = data.graph;
 			// TODO Validate transformed graph
 
 			String title = "Charges";// "Charges " + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now());
@@ -643,7 +627,7 @@ public class Main2 {
 							yield value.toPlainString() + " " + resourceRenderer.get(waterKey);
 						case SET:
 							yield value.toPlainString() + " from set";
-						case ABSOLUTE:// FIXME REmove
+						case ABSOLUTE:// FIXME Remove? Should be temporary
 							throw new IllegalStateException("Not supposed to be here");
 						};
 						scriptStream.println(link.source().id().value() + " --> " + link.target().id().value() + " : " + calculationString);
@@ -677,6 +661,101 @@ public class Main2 {
 			LOGGER.accept("Done");
 		}
 
+	}
+
+	private static Function<List<Graph.Model.ID>, Graph.Model.ID> uponCalling(Function<List<Graph.Model.ID>, Graph.Model.ID> idMerger, BiConsumer<List<Graph.Model.ID>, Graph.Model.ID> callback) {
+		return ids -> {
+			Graph.Model.ID mergedId = idMerger.apply(ids);
+			callback.accept(ids, mergedId);
+			return mergedId;
+		};
+	}
+
+	private static Graph.Instance reduceNodes(Graph.Instance graph, Factory calc, Function<List<Graph.Model.ID>, Graph.Model.ID> idMerger) {
+		var data = new Object() {
+			Graph.Instance graph;
+		};
+		data.graph = graph;
+
+		graph.edges()//
+				// Map each source ID to all its targets ID
+				.collect(groupingBy(link -> link.source().id(), mapping(link -> link.target().id(), toList())))//
+				.entrySet().stream()//
+
+				// Retain only the sources having 1 target
+				// TODO Generalize?
+				.filter(entry -> entry.getValue().size() == 1)//
+
+				// Map source to unique target
+				.map(entry -> Map.entry(entry.getKey(), entry.getValue().get(0)))
+
+				// Map target to sources grouped by source prefix
+				.collect(groupingBy(Map.Entry::getValue, groupingBy(entry -> idPrefix(entry.getKey()), mapping(Map.Entry::getKey, toList()))))//
+
+				// Stream source groups
+				.entrySet().stream()//
+				.flatMap(groups -> groups.getValue().entrySet().stream()) //
+				.map(Map.Entry::getValue) //
+
+				// Retain only groups having several sources
+				.filter(sources -> sources.size() > 1)
+
+				// Reduce source nodes per group
+				.forEach(sources -> {
+					if (sources.size() > 2) {
+						// TODO Generalize to N nodes
+						throw new UnsupportedOperationException("Not implemented yet");
+					}
+					Graph.Model.ID mergingNodeId1 = sources.get(1);
+					Graph.Model.ID mergingNodeId2 = sources.get(0);
+					Graph.Model.ID mergedNodeId = idMerger.apply(sources);
+					data.graph = mergeNodes(data.graph, calc, mergingNodeId1, mergingNodeId2, mergedNodeId);
+				});
+
+		return data.graph;
+	}
+
+	private static String idPrefix(Graph.Model.ID id) {
+		String value = id.value();
+		int prefixEnd = value.lastIndexOf(".");
+		return value.substring(0, prefixEnd);
+	}
+
+	private static Graph.Instance mergeNodes(Graph.Instance graph, Factory calc, Graph.Model.ID mergingNodeId1, Graph.Model.ID mergingNodeId2, Graph.Model.ID mergedNodeId) {
+		var data = new Object() {
+			Collection<Graph.Instance.Node> newNodes = new LinkedList<>();
+			Collection<Graph.Instance.Link> newLinks = new LinkedList<>();
+			Calculation.Resources mergedResources = Calculation.Resources.createEmpty();
+			Collection<Graph.Instance.Link> absolutedLinks = new LinkedList<>();
+		};
+
+		graph.vertices().forEach(node -> {
+			if (node.id().equals(mergingNodeId1) || node.id().equals(mergingNodeId2)) {
+				data.mergedResources = data.mergedResources.add(node.resources());
+			} else {
+				data.newNodes.add(node);
+			}
+		});
+		Graph.Instance.Node mergedNode = Graph.Instance.Node.create(mergedNodeId, data.mergedResources);
+		data.newNodes.add(mergedNode);
+
+		graph.edges().forEach(link -> {
+			if (link.target().id().equals(mergingNodeId1) || link.target().id().equals(mergingNodeId2)) {
+				data.absolutedLinks.add(new Graph.Instance.Link(link.source(), calc.absolute(link.calculation(), link.source().resources()), mergedNode));
+			} else if (link.source().id().equals(mergingNodeId1) || link.source().id().equals(mergingNodeId2)) {
+				data.absolutedLinks.add(new Graph.Instance.Link(mergedNode, calc.absolute(link.calculation(), link.source().resources()), link.target()));
+			} else {
+				data.newLinks.add(link);
+			}
+		});
+
+		Collection<Graph.Instance.Link> reducedAbsolutedLinks = reduceLinks(data.absolutedLinks, calc);
+
+		reducedAbsolutedLinks.stream()//
+				.map(link -> new Graph.Instance.Link(link.source(), calc.relativize(link.calculation(), link.source().resources()), link.target()))//
+				.forEach(data.newLinks::add);
+
+		return new Graph.Instance(data.newNodes::stream, data.newLinks::stream);
 	}
 
 	private static Graph.Instance useEverythingCalculationWhenApplies(Graph.Instance graph, Factory calc, List<String> resourceKeys) {
