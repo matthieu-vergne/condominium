@@ -602,7 +602,7 @@ public class Main2 {
 			variables.set(elecCalorifiqueLotOthers, new BigDecimal("58.0"));
 
 			List<String> lotsToDisplay = List.of(lot32, lot33);
-			String mergedName = "xx";
+			String mergedName = "autres";
 
 			// Add global validators after specific validators were introduced in model building
 			graphValidator.addValidator(Graph.Instance.Validator.checkLinksFullyConsumeTheirSourceNode());
