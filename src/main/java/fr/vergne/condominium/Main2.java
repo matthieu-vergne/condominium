@@ -373,6 +373,7 @@ public class Main2 {
 			String lot32 = "Lot.32";
 			String lot33 = "Lot.33";
 			String lot34 = "Lot.34";
+			String lot35 = "Lot.35";
 			String lotOthers = "Lot.xx";
 
 			/* STATIC SOURCE & STATIC INFO */
@@ -409,6 +410,16 @@ public class Main2 {
 			graphModel.dispatch(elecCalorifiqueLot34).to(lot34).taking(calc.everything());
 			Calculation cal34 = setCal.part(variables.valueOf(elecCalorifiqueLot34));
 
+			String eauPotableFroideLot35 = "Eau.Potable.Froide." + lot35;
+			graphModel.dispatch(eauPotableFroideLot35).to(lot35).taking(calc.everything());
+			Calculation eau35 = calc.resource(waterKey, variables.valueOf(eauPotableFroideLot35));
+			String eauPotableChaudeLot35 = "Eau.Potable.Chaude." + lot35;
+			graphModel.dispatch(eauPotableChaudeLot35).to(lot35).taking(calc.everything());
+			Calculation ecs35 = setECS.part(variables.valueOf(eauPotableChaudeLot35));
+			String elecCalorifiqueLot35 = "Calorie." + lot35;
+			graphModel.dispatch(elecCalorifiqueLot35).to(lot35).taking(calc.everything());
+			Calculation cal35 = setCal.part(variables.valueOf(elecCalorifiqueLot35));
+
 			String eauPotableFroideLotOthers = "Eau.Potable.Froide." + lotOthers;
 			graphModel.dispatch(eauPotableFroideLotOthers).to(lotOthers).taking(calc.everything());
 			Calculation eauOthers = calc.resource(waterKey, variables.valueOf(eauPotableFroideLotOthers));
@@ -425,28 +436,32 @@ public class Main2 {
 			graphModel.dispatch(tantièmesPcs3).to(lot32).taking(tantPcs3.part(new BigInteger("317")));
 			graphModel.dispatch(tantièmesPcs3).to(lot33).taking(tantPcs3.part(new BigInteger("449")));
 			graphModel.dispatch(tantièmesPcs3).to(lot34).taking(tantPcs3.part(new BigInteger("378")));
-			graphModel.dispatch(tantièmesPcs3).to(lotOthers).taking(tantPcs3.part(new BigInteger("8856")));
+			graphModel.dispatch(tantièmesPcs3).to(lot35).taking(tantPcs3.part(new BigInteger("357")));
+			graphModel.dispatch(tantièmesPcs3).to(lotOthers).taking(tantPcs3.part(new BigInteger("8499")));
 
 			String tantièmesPcs4 = "Tantiemes.PCS4";
 			Calculation.Factory.Group tantPcs4 = calc.createTantiemesGroup();
 			graphModel.dispatch(tantièmesPcs4).to(lot32).taking(tantPcs4.part(new BigInteger("347")));
 			graphModel.dispatch(tantièmesPcs4).to(lot33).taking(tantPcs4.part(new BigInteger("494")));
 			graphModel.dispatch(tantièmesPcs4).to(lot34).taking(tantPcs4.part(new BigInteger("416")));
-			graphModel.dispatch(tantièmesPcs4).to(lotOthers).taking(tantPcs4.part(new BigInteger("8743")));
+			graphModel.dispatch(tantièmesPcs4).to(lot35).taking(tantPcs4.part(new BigInteger("393")));
+			graphModel.dispatch(tantièmesPcs4).to(lotOthers).taking(tantPcs4.part(new BigInteger("8350")));
 
 			String tantièmesChauffage = "Tantiemes.ECS_Chauffage";
 			Calculation.Factory.Group tantChauffage = calc.createTantiemesGroup();
 			graphModel.dispatch(tantièmesChauffage).to(lot32).taking(tantChauffage.part(new BigInteger("127")));
 			graphModel.dispatch(tantièmesChauffage).to(lot33).taking(tantChauffage.part(new BigInteger("179")));
 			graphModel.dispatch(tantièmesChauffage).to(lot34).taking(tantChauffage.part(new BigInteger("201")));
-			graphModel.dispatch(tantièmesChauffage).to(lotOthers).taking(tantChauffage.part(new BigInteger("9493")));
+			graphModel.dispatch(tantièmesChauffage).to(lot35).taking(tantChauffage.part(new BigInteger("204")));
+			graphModel.dispatch(tantièmesChauffage).to(lotOthers).taking(tantChauffage.part(new BigInteger("9289")));
 
 			String tantièmesRafraichissement = "Tantiemes.Rafraichissement";
 			Calculation.Factory.Group tantRafraichissement = calc.createTantiemesGroup();
 			graphModel.dispatch(tantièmesRafraichissement).to(lot32).taking(tantRafraichissement.part(new BigInteger("182")));
 			graphModel.dispatch(tantièmesRafraichissement).to(lot33).taking(tantRafraichissement.part(new BigInteger("256")));
 			graphModel.dispatch(tantièmesRafraichissement).to(lot34).taking(tantRafraichissement.part(new BigInteger("288")));
-			graphModel.dispatch(tantièmesRafraichissement).to(lotOthers).taking(tantRafraichissement.part(new BigInteger("9274")));
+			graphModel.dispatch(tantièmesRafraichissement).to(lot35).taking(tantRafraichissement.part(new BigInteger("293")));
+			graphModel.dispatch(tantièmesRafraichissement).to(lotOthers).taking(tantRafraichissement.part(new BigInteger("8981")));
 
 			// TODO Retrieve distribution from CSV
 			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";
@@ -456,6 +471,7 @@ public class Main2 {
 			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(ecs32);
 			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(ecs33);
 			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot34).taking(ecs34);
+			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot35).taking(ecs35);
 			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLotOthers).taking(ecsOthers);
 
 			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";
@@ -467,6 +483,7 @@ public class Main2 {
 			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot32).taking(cal32);
 			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot33).taking(cal33);
 			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot34).taking(cal34);
+			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot35).taking(cal35);
 			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLotOthers).taking(calOthers);
 
 			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";
@@ -478,6 +495,7 @@ public class Main2 {
 			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot32).taking(cal32);
 			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot33).taking(cal33);
 			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot34).taking(cal34);
+			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot35).taking(cal35);
 			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLotOthers).taking(calOthers);
 
 			/* STATIC SOURCE & DYNAMIC INFO */
@@ -486,6 +504,7 @@ public class Main2 {
 			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot32)));
 			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot33)));
 			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot34).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot34)));
+			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot35).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot35)));
 			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLotOthers).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLotOthers)));
 			Calculation eauChaufferie = calc.resource(waterKey, variables.valueOf(eauPotableChaufferie));
 
@@ -494,6 +513,7 @@ public class Main2 {
 			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot32).taking(eau32);
 			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot33).taking(eau33);
 			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot34).taking(eau34);
+			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot35).taking(eau35);
 			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLotOthers).taking(eauOthers);
 
 			String elecChaufferieAutre = "Elec.Chaufferie.autre";
@@ -559,12 +579,14 @@ public class Main2 {
 			variables.set(eauPotableFroideLot32, new BigDecimal("1.0"));
 			variables.set(eauPotableFroideLot33, new BigDecimal("1.0"));
 			variables.set(eauPotableFroideLot34, new BigDecimal("1.0"));
-			variables.set(eauPotableFroideLotOthers, new BigDecimal("59.0"));
+			variables.set(eauPotableFroideLot35, new BigDecimal("1.0"));
+			variables.set(eauPotableFroideLotOthers, new BigDecimal("58.0"));
 			variables.set(eauPotableChaufferie, new BigDecimal("62.0"));
 			variables.set(eauPotableChaudeLot32, new BigDecimal("1.0"));
 			variables.set(eauPotableChaudeLot33, new BigDecimal("1.0"));
 			variables.set(eauPotableChaudeLot34, new BigDecimal("1.0"));
-			variables.set(eauPotableChaudeLotOthers, new BigDecimal("59.0"));
+			variables.set(eauPotableChaudeLot35, new BigDecimal("1.0"));
+			variables.set(eauPotableChaudeLotOthers, new BigDecimal("58.0"));
 
 			variables.set(elecTgbtAscenseurBoussole, new BigDecimal("10.0"));
 			variables.set(elecChaufferieGeneral, new BigDecimal("50.0"));
@@ -576,7 +598,8 @@ public class Main2 {
 			variables.set(elecCalorifiqueLot32, new BigDecimal("1.0"));
 			variables.set(elecCalorifiqueLot33, new BigDecimal("1.0"));
 			variables.set(elecCalorifiqueLot34, new BigDecimal("1.0"));
-			variables.set(elecCalorifiqueLotOthers, new BigDecimal("59.0"));
+			variables.set(elecCalorifiqueLot35, new BigDecimal("1.0"));
+			variables.set(elecCalorifiqueLotOthers, new BigDecimal("58.0"));
 
 			List<String> lotsToDisplay = List.of(lot32, lot33);
 			String mergedName = "xx";
