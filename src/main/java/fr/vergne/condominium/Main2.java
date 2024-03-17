@@ -12,6 +12,7 @@ import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.mapping;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -48,7 +49,6 @@ import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import fr.vergne.condominium.Main2.Calculation.Resources;
@@ -59,7 +59,8 @@ import fr.vergne.condominium.core.mail.SoftReferencedMail;
 import fr.vergne.condominium.core.monitorable.Issue;
 import fr.vergne.condominium.core.monitorable.Question;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser;
-import fr.vergne.condominium.core.parser.yaml.ProfilesConfiguration;
+import fr.vergne.condominium.core.parser.yaml.LotsConfiguration;
+import fr.vergne.condominium.core.parser.yaml.TantiemesConfiguration;
 import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.Repository;
 import fr.vergne.condominium.core.source.Source;
@@ -75,18 +76,19 @@ public class Main2 {
 	private static final Consumer<Object> LOGGER = System.out::println;
 
 	public static void main(String[] args) throws IOException {
-		Path importFolderPath = Paths.get(System.getProperty("importFolder"));
 		Path confFolderPath = Paths.get(System.getProperty("confFolder"));
 		Path outFolderPath = Paths.get(System.getProperty("outFolder"));
 		outFolderPath.toFile().mkdirs();
-		Path confProfilesPath = confFolderPath.resolve("profiles.yaml");
+		Path confTantiemesPath = confFolderPath.resolve("tantiemes.yaml");
+		Path confLotsPath = confFolderPath.resolve("lots.yaml");
 		Path path = outFolderPath.resolve("graphCharges.plantuml");
 		Path svgPath = outFolderPath.resolve("graphCharges.svg");
 
 		LOGGER.accept("=================");
 
-		LOGGER.accept("Read profiles conf");
-		ProfilesConfiguration confProfiles = ProfilesConfiguration.parser().apply(confProfilesPath);
+		LOGGER.accept("Read tantiemes conf");
+		LotsConfiguration confLots = LotsConfiguration.parser().apply(confLotsPath);
+		TantiemesConfiguration confTantiemes = TantiemesConfiguration.parser().apply(confTantiemesPath);
 
 		LOGGER.accept("=================");
 		{
@@ -196,6 +198,10 @@ public class Main2 {
 										return Optional.<BigDecimal>empty();
 									}
 									BigDecimal keyValue = opt.get();
+									if (ComputationUtil.isPracticallyZero(keyValue)) {
+										return Optional.of(keyValue);
+									}
+
 									Optional<BigDecimal> opt2 = source.resource(resourceKey);
 									if (opt2.isEmpty()) {
 										throw new IllegalStateException("No resource " + resourceKey + " to consume, asking: " + keyValue);
@@ -369,152 +375,89 @@ public class Main2 {
 			/* OUTPUT */
 			Variables variables = new Variables();
 
-			// TODO Retrieve lots from CSV
-			String lot32 = "Lot.32";
-			String lot33 = "Lot.33";
-			String lot34 = "Lot.34";
-			String lot35 = "Lot.35";
-			String lotOthers = "Lot.xx";
+			String lotPrefix = "Lot.";
+			List<String> lots = confLots.keySet().stream().map(id -> lotPrefix + id).toList();
+			// TODO Remove
+			List<String> lots2 = confLots.keySet().stream().filter(id -> id < 63).map(id -> lotPrefix + id).toList();
 
 			/* STATIC SOURCE & STATIC INFO */
 			Calculation.Factory.Group setECS = calc.createGroup();
 			Calculation.Factory.Group setCal = calc.createGroup();
 
-			String eauPotableFroideLot32 = "Eau.Potable.Froide." + lot32;
-			graphModel.dispatch(eauPotableFroideLot32).to(lot32).taking(calc.everything());
-			Calculation eau32 = calc.resource(waterKey, variables.valueOf(eauPotableFroideLot32));
-			String eauPotableChaudeLot32 = "Eau.Potable.Chaude." + lot32;
-			graphModel.dispatch(eauPotableChaudeLot32).to(lot32).taking(calc.everything());
-			Calculation ecs32 = setECS.part(variables.valueOf(eauPotableChaudeLot32));
-			String elecCalorifiqueLot32 = "Calorie." + lot32;
-			graphModel.dispatch(elecCalorifiqueLot32).to(lot32).taking(calc.everything());
-			Calculation cal32 = setCal.part(variables.valueOf(elecCalorifiqueLot32));
+			String eauPotableFroidePrefix = "Eau.Potable.Froide.";
+			String eauPotableChaudePrefix = "Eau.Potable.Chaude.";
+			String elecCalorifiquePrefix = "Calorie.";
+			var data = new Object() {
+				Map<String, Calculation> eau = new HashMap<>();
+				Map<String, Calculation> ecs = new HashMap<>();
+				Map<String, Calculation> cal = new HashMap<>();
+			};
+			lots2.stream().forEach(lot -> {
+				String eauPotableFroide = eauPotableFroidePrefix + lot;
+				graphModel.dispatch(eauPotableFroide).to(lot).taking(calc.everything());
+				data.eau.put(lot, calc.resource(waterKey, variables.valueOf(eauPotableFroide)));
+				String eauPotableChaude = eauPotableChaudePrefix + lot;
+				graphModel.dispatch(eauPotableChaude).to(lot).taking(calc.everything());
+				data.ecs.put(lot, setECS.part(variables.valueOf(eauPotableChaude)));
+				graphModel.dispatch(elecCalorifiquePrefix + lot).to(lot).taking(calc.everything());
+				data.cal.put(lot, setCal.part(variables.valueOf(elecCalorifiquePrefix + lot)));
+			});
 
-			String eauPotableFroideLot33 = "Eau.Potable.Froide." + lot33;
-			graphModel.dispatch(eauPotableFroideLot33).to(lot33).taking(calc.everything());
-			Calculation eau33 = calc.resource(waterKey, variables.valueOf(eauPotableFroideLot33));
-			String eauPotableChaudeLot33 = "Eau.Potable.Chaude." + lot33;
-			graphModel.dispatch(eauPotableChaudeLot33).to(lot33).taking(calc.everything());
-			Calculation ecs33 = setECS.part(variables.valueOf(eauPotableChaudeLot33));
-			String elecCalorifiqueLot33 = "Calorie." + lot33;
-			graphModel.dispatch(elecCalorifiqueLot33).to(lot33).taking(calc.everything());
-			Calculation cal33 = setCal.part(variables.valueOf(elecCalorifiqueLot33));
-
-			String eauPotableFroideLot34 = "Eau.Potable.Froide." + lot34;
-			graphModel.dispatch(eauPotableFroideLot34).to(lot34).taking(calc.everything());
-			Calculation eau34 = calc.resource(waterKey, variables.valueOf(eauPotableFroideLot34));
-			String eauPotableChaudeLot34 = "Eau.Potable.Chaude." + lot34;
-			graphModel.dispatch(eauPotableChaudeLot34).to(lot34).taking(calc.everything());
-			Calculation ecs34 = setECS.part(variables.valueOf(eauPotableChaudeLot34));
-			String elecCalorifiqueLot34 = "Calorie." + lot34;
-			graphModel.dispatch(elecCalorifiqueLot34).to(lot34).taking(calc.everything());
-			Calculation cal34 = setCal.part(variables.valueOf(elecCalorifiqueLot34));
-
-			String eauPotableFroideLot35 = "Eau.Potable.Froide." + lot35;
-			graphModel.dispatch(eauPotableFroideLot35).to(lot35).taking(calc.everything());
-			Calculation eau35 = calc.resource(waterKey, variables.valueOf(eauPotableFroideLot35));
-			String eauPotableChaudeLot35 = "Eau.Potable.Chaude." + lot35;
-			graphModel.dispatch(eauPotableChaudeLot35).to(lot35).taking(calc.everything());
-			Calculation ecs35 = setECS.part(variables.valueOf(eauPotableChaudeLot35));
-			String elecCalorifiqueLot35 = "Calorie." + lot35;
-			graphModel.dispatch(elecCalorifiqueLot35).to(lot35).taking(calc.everything());
-			Calculation cal35 = setCal.part(variables.valueOf(elecCalorifiqueLot35));
-
-			String eauPotableFroideLotOthers = "Eau.Potable.Froide." + lotOthers;
-			graphModel.dispatch(eauPotableFroideLotOthers).to(lotOthers).taking(calc.everything());
-			Calculation eauOthers = calc.resource(waterKey, variables.valueOf(eauPotableFroideLotOthers));
-			String eauPotableChaudeLotOthers = "Eau.Potable.Chaude." + lotOthers;
-			graphModel.dispatch(eauPotableChaudeLotOthers).to(lotOthers).taking(calc.everything());
-			Calculation ecsOthers = setECS.part(variables.valueOf(eauPotableChaudeLotOthers));
-			String elecCalorifiqueLotOthers = "Calorie." + lotOthers;
-			graphModel.dispatch(elecCalorifiqueLotOthers).to(lotOthers).taking(calc.everything());
-			Calculation calOthers = setCal.part(variables.valueOf(elecCalorifiqueLotOthers));
-
-			// TODO Retrieve lots tantiemes from CSV
-			String tantièmesPcs3 = "Tantiemes.PCS3";
-			Calculation.Factory.Group tantPcs3 = calc.createTantiemesGroup();
-			graphModel.dispatch(tantièmesPcs3).to(lot32).taking(tantPcs3.part(new BigInteger("317")));
-			graphModel.dispatch(tantièmesPcs3).to(lot33).taking(tantPcs3.part(new BigInteger("449")));
-			graphModel.dispatch(tantièmesPcs3).to(lot34).taking(tantPcs3.part(new BigInteger("378")));
-			graphModel.dispatch(tantièmesPcs3).to(lot35).taking(tantPcs3.part(new BigInteger("357")));
-			graphModel.dispatch(tantièmesPcs3).to(lotOthers).taking(tantPcs3.part(new BigInteger("8499")));
-
-			String tantièmesPcs4 = "Tantiemes.PCS4";
-			Calculation.Factory.Group tantPcs4 = calc.createTantiemesGroup();
-			graphModel.dispatch(tantièmesPcs4).to(lot32).taking(tantPcs4.part(new BigInteger("347")));
-			graphModel.dispatch(tantièmesPcs4).to(lot33).taking(tantPcs4.part(new BigInteger("494")));
-			graphModel.dispatch(tantièmesPcs4).to(lot34).taking(tantPcs4.part(new BigInteger("416")));
-			graphModel.dispatch(tantièmesPcs4).to(lot35).taking(tantPcs4.part(new BigInteger("393")));
-			graphModel.dispatch(tantièmesPcs4).to(lotOthers).taking(tantPcs4.part(new BigInteger("8350")));
-
-			String tantièmesChauffage = "Tantiemes.ECS_Chauffage";
-			Calculation.Factory.Group tantChauffage = calc.createTantiemesGroup();
-			graphModel.dispatch(tantièmesChauffage).to(lot32).taking(tantChauffage.part(new BigInteger("127")));
-			graphModel.dispatch(tantièmesChauffage).to(lot33).taking(tantChauffage.part(new BigInteger("179")));
-			graphModel.dispatch(tantièmesChauffage).to(lot34).taking(tantChauffage.part(new BigInteger("201")));
-			graphModel.dispatch(tantièmesChauffage).to(lot35).taking(tantChauffage.part(new BigInteger("204")));
-			graphModel.dispatch(tantièmesChauffage).to(lotOthers).taking(tantChauffage.part(new BigInteger("9289")));
-
-			String tantièmesRafraichissement = "Tantiemes.Rafraichissement";
-			Calculation.Factory.Group tantRafraichissement = calc.createTantiemesGroup();
-			graphModel.dispatch(tantièmesRafraichissement).to(lot32).taking(tantRafraichissement.part(new BigInteger("182")));
-			graphModel.dispatch(tantièmesRafraichissement).to(lot33).taking(tantRafraichissement.part(new BigInteger("256")));
-			graphModel.dispatch(tantièmesRafraichissement).to(lot34).taking(tantRafraichissement.part(new BigInteger("288")));
-			graphModel.dispatch(tantièmesRafraichissement).to(lot35).taking(tantRafraichissement.part(new BigInteger("293")));
-			graphModel.dispatch(tantièmesRafraichissement).to(lotOthers).taking(tantRafraichissement.part(new BigInteger("8981")));
+			String tantiemesPrefix = "Tantiemes.";
+			String tantiemesPcs3 = tantiemesPrefix + "PCS3";// TODO Remove
+			String tantiemesPcs4 = tantiemesPrefix + "PCS4";// TODO Remove
+			String tantiemesChauffage = tantiemesPrefix + "ECS_Chauffage";// TODO Remove
+			String tantiemesRafraichissement = tantiemesPrefix + "Rafraichissement";// TODO Remove
+			confTantiemes.forEach((table, tantiemes) -> {
+				String tantiemesTable = tantiemesPrefix + table;
+				Calculation.Factory.Group tant = calc.createTantiemesGroup();
+				confTantiemes.get(table).forEach((lot, value) -> {
+					graphModel.dispatch(tantiemesTable).to(lot).taking(tant.part(BigInteger.valueOf(value)));
+				});
+			});
 
 			// TODO Retrieve distribution from CSV
 			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";
-			graphModel.dispatch(elecChaufferieCombustibleECSTantiemes).to(tantièmesChauffage).taking(calc.everything());
+			graphModel.dispatch(elecChaufferieCombustibleECSTantiemes).to(tantiemesChauffage).taking(calc.everything());
 
 			String elecChaufferieCombustibleECSCompteurs = "Elec.Chaufferie.combustibleECSCompteurs";
-			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(ecs32);
-			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(ecs33);
-			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot34).taking(ecs34);
-			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot35).taking(ecs35);
-			graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLotOthers).taking(ecsOthers);
+			lots2.forEach(lot -> {
+				graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudePrefix + lot).taking(data.ecs.get(lot));
+			});
 
 			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";
 			Calculation.Factory.Group ratioRC = calc.createRatioGroup();
-			graphModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantièmesChauffage).taking(ratioRC.part(new BigDecimal("0.5")));
-			graphModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantièmesRafraichissement).taking(ratioRC.part(new BigDecimal("0.5")));
+			graphModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantiemesChauffage).taking(ratioRC.part(new BigDecimal("0.5")));
+			graphModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantiemesRafraichissement).taking(ratioRC.part(new BigDecimal("0.5")));
 
 			String elecChaufferieCombustibleRCCompteurs = "Elec.Chaufferie.combustibleRCCompteurs";
-			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot32).taking(cal32);
-			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot33).taking(cal33);
-			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot34).taking(cal34);
-			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot35).taking(cal35);
-			graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLotOthers).taking(calOthers);
+			lots2.forEach(lot -> {
+				graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiquePrefix + lot).taking(data.cal.get(lot));
+			});
 
 			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";
 			Calculation.Factory.Group ratioChaufAutresTant = calc.createRatioGroup();
-			graphModel.dispatch(elecChaufferieAutreTantiemes).to(tantièmesChauffage).taking(ratioChaufAutresTant.part(new BigDecimal("0.5")));
-			graphModel.dispatch(elecChaufferieAutreTantiemes).to(tantièmesRafraichissement).taking(ratioChaufAutresTant.part(new BigDecimal("0.5")));
+			graphModel.dispatch(elecChaufferieAutreTantiemes).to(tantiemesChauffage).taking(ratioChaufAutresTant.part(new BigDecimal("0.5")));
+			graphModel.dispatch(elecChaufferieAutreTantiemes).to(tantiemesRafraichissement).taking(ratioChaufAutresTant.part(new BigDecimal("0.5")));
 
 			String elecChaufferieAutreMesures = "Elec.Chaufferie.autreMesures";
-			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot32).taking(cal32);
-			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot33).taking(cal33);
-			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot34).taking(cal34);
-			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot35).taking(cal35);
-			graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLotOthers).taking(calOthers);
+			lots2.forEach(lot -> {
+				graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiquePrefix + lot).taking(data.cal.get(lot));
+			});
 
 			/* STATIC SOURCE & DYNAMIC INFO */
 
-			String eauPotableChaufferie = "Eau.Potable.Froide.chaufferie";
-			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot32)));
-			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot33)));
-			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot34).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot34)));
-			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot35).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot35)));
-			graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLotOthers).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLotOthers)));
+			String eauPotableChaufferie = eauPotableFroidePrefix + "chaufferie";
+			lots2.forEach(lot -> {
+				graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudePrefix + lot).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudePrefix + lot)));
+			});
 			Calculation eauChaufferie = calc.resource(waterKey, variables.valueOf(eauPotableChaufferie));
 
-			String eauPotableGeneral = "Eau.Potable.Froide.general";
+			String eauPotableGeneral = eauPotableFroidePrefix + "general";
 			graphModel.dispatch(eauPotableGeneral).to(eauPotableChaufferie).taking(eauChaufferie);
-			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot32).taking(eau32);
-			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot33).taking(eau33);
-			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot34).taking(eau34);
-			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLot35).taking(eau35);
-			graphModel.dispatch(eauPotableGeneral).to(eauPotableFroideLotOthers).taking(eauOthers);
+			lots2.forEach(lot -> {
+				graphModel.dispatch(eauPotableGeneral).to(eauPotableFroidePrefix + lot).taking(data.eau.get(lot));
+			});
 
 			String elecChaufferieAutre = "Elec.Chaufferie.autre";
 			Calculation.Factory.Group ratioChaufAutres = calc.createRatioGroup();
@@ -546,7 +489,7 @@ public class Main2 {
 			Calculation mwhChaufferie = calc.resource(mwhKey, variables.valueOf(elecChaufferieGeneral));
 
 			String elecTgbtAscenseurBoussole = "Elec.TGBT.ascenseur_boussole";
-			graphModel.dispatch(elecTgbtAscenseurBoussole).to(tantièmesPcs3).taking(calc.everything());
+			graphModel.dispatch(elecTgbtAscenseurBoussole).to(tantiemesPcs3).taking(calc.everything());
 			Calculation mwhTgbtAscenseurBoussole = calc.resource(mwhKey, variables.valueOf(elecTgbtAscenseurBoussole));
 
 			String elecTgbtGeneral = "Elec.TGBT.general";
@@ -572,36 +515,33 @@ public class Main2 {
 
 			String facturePoubellesBoussole = "Facture.PoubelleBoussole";
 			graphModel.assign(facturePoubellesBoussole, eurosKey, new BigDecimal("100.0"));
-			graphModel.dispatch(facturePoubellesBoussole).to(tantièmesPcs4).taking(calc.everything());
+			graphModel.dispatch(facturePoubellesBoussole).to(tantiemesPcs4).taking(calc.everything());
 
 			/* VARIABLES */
 
-			variables.set(eauPotableFroideLot32, new BigDecimal("1.0"));
-			variables.set(eauPotableFroideLot33, new BigDecimal("1.0"));
-			variables.set(eauPotableFroideLot34, new BigDecimal("1.0"));
-			variables.set(eauPotableFroideLot35, new BigDecimal("1.0"));
-			variables.set(eauPotableFroideLotOthers, new BigDecimal("58.0"));
-			variables.set(eauPotableChaufferie, new BigDecimal("62.0"));
-			variables.set(eauPotableChaudeLot32, new BigDecimal("1.0"));
-			variables.set(eauPotableChaudeLot33, new BigDecimal("1.0"));
-			variables.set(eauPotableChaudeLot34, new BigDecimal("1.0"));
-			variables.set(eauPotableChaudeLot35, new BigDecimal("1.0"));
-			variables.set(eauPotableChaudeLotOthers, new BigDecimal("58.0"));
+			{
+				for (int i = 1; i <= 62; i++) {
+					variables.set(eauPotableFroidePrefix + lotPrefix + i, new BigDecimal("1.0"));
+					variables.set(eauPotableChaudePrefix + lotPrefix + i, new BigDecimal("1.0"));
+					variables.set(elecCalorifiquePrefix + lotPrefix + i, new BigDecimal("1.0"));
+				}
+				variables.set(eauPotableChaufferie, new BigDecimal("62.0"));
 
-			variables.set(elecTgbtAscenseurBoussole, new BigDecimal("10.0"));
-			variables.set(elecChaufferieGeneral, new BigDecimal("50.0"));
-			variables.set(elecChaufferieCombustible, new BigDecimal("30.0"));
-			variables.set(elecChaufferieCombustibleECS, new BigDecimal("15.0"));
-			variables.set(elecChaufferieCombustibleRC, new BigDecimal("15.0"));
-			variables.set(elecChaufferieAutre, new BigDecimal("20.0"));
+				variables.set(elecTgbtAscenseurBoussole, new BigDecimal("10.0"));
+				variables.set(elecChaufferieGeneral, new BigDecimal("50.0"));
+				variables.set(elecChaufferieCombustible, new BigDecimal("30.0"));
+				variables.set(elecChaufferieCombustibleECS, new BigDecimal("15.0"));
+				variables.set(elecChaufferieCombustibleRC, new BigDecimal("15.0"));
+				variables.set(elecChaufferieAutre, new BigDecimal("20.0"));
 
-			variables.set(elecCalorifiqueLot32, new BigDecimal("1.0"));
-			variables.set(elecCalorifiqueLot33, new BigDecimal("1.0"));
-			variables.set(elecCalorifiqueLot34, new BigDecimal("1.0"));
-			variables.set(elecCalorifiqueLot35, new BigDecimal("1.0"));
-			variables.set(elecCalorifiqueLotOthers, new BigDecimal("58.0"));
+				// TODO Remove
+				lots2.stream()//
+						.flatMap(lot -> Stream.of(eauPotableChaudePrefix + lot, eauPotableFroidePrefix + lot, elecCalorifiquePrefix + lot))//
+						.filter(key -> !variables.values.containsKey(key))//
+						.forEach(key -> variables.set(key, BigDecimal.ZERO));
+			}
 
-			List<String> lotsToDisplay = List.of(lot32, lot33);
+			List<String> lotsToDisplay = List.of("Lot.32", "Lot.33");
 			String mergedName = "autres";
 
 			// Add global validators after specific validators were introduced in model building
@@ -609,7 +549,7 @@ public class Main2 {
 			graphValidator.addValidator(Graph.Instance.Validator.checkLinksFullyFeedTheirTargetNode());
 			graphValidator.addValidator(Graph.Instance.Validator.checkResourcesFromRootsAmountToResourcesFromLeaves());
 
-			Graph.Instance graphInstance = createGraph(graphModel, graphValidator, calc, lotsToDisplay, mergedName);
+			Graph.Instance graphInstance = createGraph(graphModel, graphValidator, calc, lotsToDisplay, mergedName, resourceKeys);
 
 			String title = "Charges";// "Charges " + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now());
 
@@ -655,7 +595,7 @@ public class Main2 {
 							yield value.toPlainString() + " " + resourceRenderer.get(waterKey);
 						case SET:
 							yield value.toPlainString() + " from set";
-						case ABSOLUTE:// FIXME Remove? Should be temporary
+						case ABSOLUTE:// TODO Remove? Should be temporary
 							throw new IllegalStateException("Not supposed to be here");
 						};
 						scriptStream.println(link.source().id().value() + " --> " + link.target().id().value() + " : " + calculationString);
@@ -691,13 +631,13 @@ public class Main2 {
 
 	}
 
-	private static Graph.Instance createGraph(Graph.Model graphModel, Graph.Instance.Validator.Aggregator graphValidator, Calculation.Factory calculationFactory, List<String> displayedLots, String mergedName) {
+	private static Graph.Instance createGraph(Graph.Model graphModel, Graph.Instance.Validator.Aggregator graphValidator, Calculation.Factory calculationFactory, List<String> displayedLots, String mergedName, List<String> resourceKeys) {
 		var data = new Object() {
 			Graph.Instance graph;
 			boolean idMergerIsCalled;
 		};
 
-		// Instantiate
+		// Create complete graph
 		data.graph = graphModel.instantiate();
 		graphValidator.validate(data.graph);
 
@@ -722,18 +662,20 @@ public class Main2 {
 		};
 
 		// Merge lots that should not be displayed
-		data.graph = mergeNodes(data.graph, calculationFactory, lotsToMerge, idMerger.apply(lotsToMerge));
-		graphValidator.validate(data.graph);
-
-		// Merge links and nodes irrelevant for displayed lots
-		do {
-			data.graph = reduceLinks(data.graph, calculationFactory);
+		if (!lotsToMerge.isEmpty()) {
+			data.graph = mergeNodes(data.graph, calculationFactory, lotsToMerge, idMerger.apply(lotsToMerge), resourceKeys);
 			graphValidator.validate(data.graph);
 
-			data.idMergerIsCalled = false;
-			data.graph = reduceNodes(data.graph, calculationFactory, uponCalling(idMerger, (ids, mergedId) -> data.idMergerIsCalled = true));
-			graphValidator.validate(data.graph);
-		} while (data.idMergerIsCalled);
+			// Merge links and nodes irrelevant for displayed lots
+			do {
+				data.graph = reduceLinks(data.graph, calculationFactory);
+				graphValidator.validate(data.graph);
+
+				data.idMergerIsCalled = false;
+				data.graph = reduceNodes(data.graph, calculationFactory, uponCalling(idMerger, (ids, mergedId) -> data.idMergerIsCalled = true), resourceKeys);
+				graphValidator.validate(data.graph);
+			} while (data.idMergerIsCalled);
+		}
 
 		return data.graph;
 	}
@@ -746,7 +688,7 @@ public class Main2 {
 		};
 	}
 
-	private static Graph.Instance reduceNodes(Graph.Instance graph, Calculation.Factory calc, Function<List<Graph.Model.ID>, Graph.Model.ID> idMerger) {
+	private static Graph.Instance reduceNodes(Graph.Instance graph, Calculation.Factory calc, Function<List<Graph.Model.ID>, Graph.Model.ID> idMerger, List<String> resourceKeys) {
 		var data = new Object() {
 			Graph.Instance graph;
 		};
@@ -776,7 +718,7 @@ public class Main2 {
 				.filter(sources -> sources.size() > 1)
 
 				// Reduce source nodes per group
-				.forEach(sources -> data.graph = mergeNodes(data.graph, calc, sources, idMerger.apply(sources)));
+				.forEach(sources -> data.graph = mergeNodes(data.graph, calc, sources, idMerger.apply(sources), resourceKeys));
 
 		return data.graph;
 	}
@@ -787,7 +729,7 @@ public class Main2 {
 		return value.substring(0, prefixEnd);
 	}
 
-	private static Graph.Instance mergeNodes(Graph.Instance graph, Calculation.Factory calc, Collection<Graph.Model.ID> mergingNodeIds, Graph.Model.ID mergedNodeId) {
+	private static Graph.Instance mergeNodes(Graph.Instance graph, Calculation.Factory calc, Collection<Graph.Model.ID> mergingNodeIds, Graph.Model.ID mergedNodeId, List<String> resourceKeys) {
 		LOGGER.accept("Merging as " + mergedNodeId.value() + " from " + mergingNodeIds.stream().map(Graph.Model.ID::value).toList());
 
 		var data = new Object() {
@@ -820,7 +762,13 @@ public class Main2 {
 		Collection<Graph.Instance.Link> reducedAbsolutedLinks = reduceLinks(data.absolutedLinks, calc);
 
 		reducedAbsolutedLinks.stream()//
-				.map(link -> new Graph.Instance.Link(link.source(), calc.relativize(link.calculation(), link.source().resources()), link.target()))//
+				.map(link -> {
+					try {
+						return new Graph.Instance.Link(link.source(), calc.relativize(link.calculation(), link.source().resources()), link.target());
+					} catch (Exception cause) {
+						throw new RuntimeException("Fail to relativize " + link.source().id().value() + " -> " + link.target().id().value(), cause);
+					}
+				})//
 				.forEach(data.newLinks::add);
 
 		return new Graph.Instance(data.newNodes::stream, data.newLinks::stream);
@@ -1272,7 +1220,7 @@ public class Main2 {
 
 		static class Model implements Graph<Model.ID, Model.Relation> {
 			private final Collection<ID> ids = new LinkedHashSet<>();
-			private final List<Relation> relations = new LinkedList<>();
+			private final Collection<Relation> relations = new LinkedList<>();
 			private final Map<Model.ID, Map<String, BigDecimal>> inputs = new HashMap<>();
 
 			static record ID(String value) {
@@ -1412,8 +1360,8 @@ public class Main2 {
 				return new Instance(nodes.values()::stream, links::stream);
 			}
 
-			private Comparator<Model.ID> idComparatorAsPerRelations(List<Model.Relation> relations) {
-				Map<Model.ID, Set<Model.ID>> orderedIds = relations.stream().collect(groupingBy(Model.Relation::source, Collectors.mapping(Model.Relation::target, Collectors.toSet())));
+			private Comparator<Model.ID> idComparatorAsPerRelations(Collection<Model.Relation> relations) {
+				Map<Model.ID, Set<Model.ID>> orderedIds = relations.stream().collect(groupingBy(Model.Relation::source, mapping(Model.Relation::target, toSet())));
 				BiPredicate<Model.ID, Model.ID> isBefore = (id1, id2) -> {
 					Set<Model.ID> ids = Set.of(id1);
 					while (true) {
@@ -1421,23 +1369,52 @@ public class Main2 {
 							s1.addAll(s2);
 							return s1;
 						});
+						if (nexts.contains(id1)) {
+							throw new IllegalStateException("Loop on " + id1);
+						}
 						if (nexts.isEmpty()) {
 							return false;
 						}
-						if (nexts.contains(id2)) {
-							return true;
-						}
+						// FIXME Relation comparator ineffective with this
+						// Why does it work without it?
+						// Why with this the comparator contract is broken?
+//						if (nexts.contains(id2)) {
+//							return true;
+//						}
 						ids = nexts;
 					}
 				};
-				Comparator<Model.ID> idValueComparator = Comparator.comparing(Model.ID::value);
+				Comparator<Model.ID> idValueComparator = Comparator.comparing(id -> {
+					String value = id.value();
+					// FIXME All that stuff should be useless if relation comparator works properly
+					int prefixEnd = value.lastIndexOf(".") + 1;
+					String prefix = value.substring(0, prefixEnd);
+					String end = value.substring(prefixEnd);
+					String val;
+					try {
+						val = String.format(prefix + "%09d", Integer.parseInt(end));
+					} catch (NumberFormatException cause) {
+						val = value;
+					}
+					return val;
+				});
 				Comparator<Model.ID> idComparator = (id1, id2) -> {
 					if (isBefore.test(id1, id2)) {
+						System.out.println(id1 + " before " + id2);
 						return -1;
 					} else if (isBefore.test(id2, id1)) {
+						System.out.println(id2 + " before " + id1);
 						return 1;
 					} else {
-						return idValueComparator.compare(id1, id2);
+						int compare = idValueComparator.compare(id1, id2);
+						if (compare < 0) {
+							System.out.println(id1 + " before " + id2 + " (" + compare + ")");
+						} else if (compare > 0) {
+							System.out.println(id2 + " before " + id1 + " (" + compare + ")");
+						} else {
+							System.out.println(id1 + " == " + id2);
+						}
+						return compare;
 					}
 				};
 				return idComparator;
