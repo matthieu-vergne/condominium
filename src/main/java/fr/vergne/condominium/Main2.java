@@ -142,14 +142,19 @@ public class Main2 {
 
 					EnrichedCalculation enrichedCalculation = enrich(calculation);
 					Mode mode = enrichedCalculation.mode;
-					if (!List.of(Mode.RATIO, Mode.WATER, Mode.MWH).contains(mode)) {
+					if (List.of(Mode.RATIO, Mode.WATER, Mode.MWH).contains(mode)) {
+						Calculation absolute = newSource -> enrichedCalculation.delegate().compute(source);
+						EnrichedCalculation absolutedCalculation = new EnrichedCalculation(absolute, Mode.ABSOLUTE, null);
+						original.put(absolutedCalculation, enrichedCalculation);
+						return absolutedCalculation;
+					} else if (mode.equals(Mode.SET)) {
+						Calculation absolute = newSource -> enrichedCalculation.delegate().compute(source);
+						EnrichedCalculation absolutedCalculation = new EnrichedCalculation(absolute, Mode.ABSOLUTE, null);
+						original.put(absolutedCalculation, enrichedCalculation);
+						return absolutedCalculation;
+					} else {
 						throw new UnsupportedOperationException("Unsupported mode: " + mode);
 					}
-
-					Calculation absolute = newSource -> enrichedCalculation.delegate().compute(source);
-					EnrichedCalculation absolutedCalculation = new EnrichedCalculation(absolute, Mode.ABSOLUTE, null);
-					original.put(absolutedCalculation, enrichedCalculation);
-					return absolutedCalculation;
 				}
 
 				@Override
@@ -160,7 +165,7 @@ public class Main2 {
 					}
 
 					Queue<EnrichedCalculation> waitingProcessing = new LinkedList<>();
-					Queue<EnrichedCalculation> leafCalculation = new LinkedList<>();
+					Collection<EnrichedCalculation> leafCalculation = new LinkedList<>();
 					waitingProcessing.add(enrichedCalculation);
 					while (!waitingProcessing.isEmpty()) {
 						EnrichedCalculation processed = waitingProcessing.poll();
@@ -172,18 +177,21 @@ public class Main2 {
 						}
 					}
 					Mode relativeMode = null;
+					Collection<EnrichedCalculation> relativeCalculations = new LinkedList<>();
 					for (EnrichedCalculation leaf : leafCalculation) {
-						EnrichedCalculation relative = original.get(leaf);
-						Mode mode = relative.mode();
-						if (!List.of(Mode.RATIO, Mode.WATER, Mode.MWH).contains(mode)) {
-							throw new UnsupportedOperationException("Not supported: " + mode);
-						}
-						if (relativeMode == null) {
-							relativeMode = mode;
-						} else if (!relativeMode.equals(mode)) {
-							throw new IllegalStateException("Incompatible modes: " + relativeMode + " vs. " + mode);
+						EnrichedCalculation relativeCalculation = original.get(leaf);
+						relativeCalculations.add(relativeCalculation);
+						Mode mode = relativeCalculation.mode();
+						if (List.of(Mode.RATIO, Mode.WATER, Mode.MWH, Mode.SET).contains(mode)) {
+							if (relativeMode == null) {
+								relativeMode = mode;
+							} else if (!relativeMode.equals(mode)) {
+								throw new IllegalStateException("Incompatible modes: " + relativeMode + " vs. " + mode);
+							} else {
+								// Compatible modes so far
+							}
 						} else {
-							// Compatible modes so far
+							throw new UnsupportedOperationException("Not supported: " + mode);
 						}
 					}
 
@@ -220,6 +228,38 @@ public class Main2 {
 						Resources resources = enrichedCalculation.compute(null);
 						BigDecimal resource = resources.resource(waterKey).orElseThrow(() -> new IllegalStateException(Mode.WATER + " mode but no " + waterKey + " resource"));
 						return new EnrichedCalculation(src -> resources, Mode.WATER, () -> resource);
+					} else if (relativeMode.equals(Mode.SET)) {
+						Resources resources = enrichedCalculation.compute(null);
+						BigDecimal ratio = resourceKeys.stream()//
+								.map(resourceKey -> {
+									Optional<BigDecimal> opt = resources.resource(resourceKey);
+									if (opt.isEmpty()) {
+										return Optional.<BigDecimal>empty();
+									}
+									BigDecimal keyValue = opt.get();
+									Optional<BigDecimal> opt2 = source.resource(resourceKey);
+									if (opt2.isEmpty()) {
+										throw new IllegalStateException("No resource " + resourceKey + " to consume, asking: " + keyValue);
+									}
+									BigDecimal keyTotal = opt2.get();
+									BigDecimal keyRatio = ComputationUtil.divide(keyValue, keyTotal);
+									return Optional.of(keyRatio);
+								})//
+								.filter(Optional::isPresent).map(Optional::get)//
+								.reduce((r1, r2) -> {
+									if (ComputationUtil.isPracticallyZero(r1.subtract(r2))) {
+										return r1;
+									} else {
+										throw new IllegalStateException("Incompatible ratios: " + r1 + " vs " + r2);
+									}
+								})//
+								.orElseThrow(() -> new IllegalStateException("No ratio computed for: " + calculation))//
+								.stripTrailingZeros();
+
+						Value<BigDecimal> value = () -> {
+							return relativeCalculations.stream().map(EnrichedCalculation::value).map(Value::get).reduce(BigDecimal::add).orElseThrow();
+						};
+						return new EnrichedCalculation(src -> src.multiply(ratio), Mode.SET, value);
 					} else {
 						throw new UnsupportedOperationException("Not supported: " + relativeMode);
 					}
@@ -338,12 +378,12 @@ public class Main2 {
 			String eauPotableFroideLot34 = "Eau.Potable.Froide." + lot34;
 			partialModel.dispatch(eauPotableFroideLot34).to(lot34).taking(calc.everything());
 			Calculation eau34 = calc.resource(waterKey, variables.valueOf(eauPotableFroideLot34));
-//			String eauPotableChaudeLot34 = "Eau.Potable.Chaude." + lot34;
-//			partialModel.dispatch(eauPotableChaudeLot34).to(lot34).taking(calc.everything());
-//			Calculation ecs34 = setECS.part(variables.valueOf(eauPotableChaudeLot34));
-//			String elecCalorifiqueLot34 = "Calorie." + lot34;
-//			partialModel.dispatch(elecCalorifiqueLot34).to(lot34).taking(calc.everything());
-//			Calculation cal34 = setCal.part(variables.valueOf(elecCalorifiqueLot34));
+			String eauPotableChaudeLot34 = "Eau.Potable.Chaude." + lot34;
+			partialModel.dispatch(eauPotableChaudeLot34).to(lot34).taking(calc.everything());
+			Calculation ecs34 = setECS.part(variables.valueOf(eauPotableChaudeLot34));
+			String elecCalorifiqueLot34 = "Calorie." + lot34;
+			partialModel.dispatch(elecCalorifiqueLot34).to(lot34).taking(calc.everything());
+			Calculation cal34 = setCal.part(variables.valueOf(elecCalorifiqueLot34));
 
 			String eauPotableFroideLotOthers = "Eau.Potable.Froide." + lotOthers;
 			partialModel.dispatch(eauPotableFroideLotOthers).to(lotOthers).taking(calc.everything());
@@ -391,7 +431,7 @@ public class Main2 {
 			String elecChaufferieCombustibleECSCompteurs = "Elec.Chaufferie.combustibleECSCompteurs";
 			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot32).taking(ecs32);
 			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot33).taking(ecs33);
-//			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot34).taking(ecs34);
+			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLot34).taking(ecs34);
 			partialModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudeLotOthers).taking(ecsOthers);
 
 			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";
@@ -402,7 +442,7 @@ public class Main2 {
 			String elecChaufferieCombustibleRCCompteurs = "Elec.Chaufferie.combustibleRCCompteurs";
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot32).taking(cal32);
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot33).taking(cal33);
-//			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot34).taking(cal34);
+			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLot34).taking(cal34);
 			partialModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiqueLotOthers).taking(calOthers);
 
 			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";
@@ -413,7 +453,7 @@ public class Main2 {
 			String elecChaufferieAutreMesures = "Elec.Chaufferie.autreMesures";
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot32).taking(cal32);
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot33).taking(cal33);
-//			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot34).taking(cal34);
+			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLot34).taking(cal34);
 			partialModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiqueLotOthers).taking(calOthers);
 
 			/* STATIC SOURCE & DYNAMIC INFO */
@@ -421,7 +461,7 @@ public class Main2 {
 			String eauPotableChaufferie = "Eau.Potable.Froide.chaufferie";
 			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot32).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot32)));
 			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot33).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot33)));
-//			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot34).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot34)));
+			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLot34).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLot34)));
 			partialModel.dispatch(eauPotableChaufferie).to(eauPotableChaudeLotOthers).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudeLotOthers)));
 			Calculation eauChaufferie = calc.resource(waterKey, variables.valueOf(eauPotableChaufferie));
 
@@ -499,8 +539,8 @@ public class Main2 {
 			variables.set(eauPotableChaufferie, new BigDecimal("62.0"));
 			variables.set(eauPotableChaudeLot32, new BigDecimal("1.0"));
 			variables.set(eauPotableChaudeLot33, new BigDecimal("1.0"));
-//			variables.set(eauPotableChaudeLot34, new BigDecimal("1.0"));
-			variables.set(eauPotableChaudeLotOthers, new BigDecimal("60.0"));
+			variables.set(eauPotableChaudeLot34, new BigDecimal("1.0"));
+			variables.set(eauPotableChaudeLotOthers, new BigDecimal("59.0"));
 
 			variables.set(elecTgbtAscenseurBoussole, new BigDecimal("10.0"));
 			variables.set(elecChaufferieGeneral, new BigDecimal("50.0"));
@@ -511,8 +551,8 @@ public class Main2 {
 
 			variables.set(elecCalorifiqueLot32, new BigDecimal("1.0"));
 			variables.set(elecCalorifiqueLot33, new BigDecimal("1.0"));
-//			variables.set(elecCalorifiqueLot34, new BigDecimal("1.0"));
-			variables.set(elecCalorifiqueLotOthers, new BigDecimal("60.0"));
+			variables.set(elecCalorifiqueLot34, new BigDecimal("1.0"));
+			variables.set(elecCalorifiqueLotOthers, new BigDecimal("59.0"));
 
 			Graph.Instance graphInstance1 = partialModel.instantiate();
 			graphValidator.addValidator(Graph.Instance.Validator.checkLinksFullyConsumeTheirSourceNode());
@@ -559,6 +599,8 @@ public class Main2 {
 			};
 			data.graph = graphInstance2;
 
+			// Merge nodes into already existing aggregates
+			// TODO Support cases where aggregate is not yet there
 			Function<List<Graph.Model.ID>, Graph.Model.ID> idMerger = ids -> ids.stream()//
 					.filter(id -> id.value().endsWith(".xx"))//
 					.findAny()//
@@ -722,6 +764,8 @@ public class Main2 {
 	}
 
 	private static Graph.Instance mergeNodes(Graph.Instance graph, Factory calc, Graph.Model.ID mergingNodeId1, Graph.Model.ID mergingNodeId2, Graph.Model.ID mergedNodeId) {
+		System.out.println("Merging " + mergingNodeId1 + " with " + mergingNodeId2 + " as " + mergedNodeId);
+
 		var data = new Object() {
 			Collection<Graph.Instance.Node> newNodes = new LinkedList<>();
 			Collection<Graph.Instance.Link> newLinks = new LinkedList<>();
