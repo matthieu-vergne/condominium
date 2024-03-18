@@ -59,7 +59,7 @@ import fr.vergne.condominium.core.mail.SoftReferencedMail;
 import fr.vergne.condominium.core.monitorable.Issue;
 import fr.vergne.condominium.core.monitorable.Question;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser;
-import fr.vergne.condominium.core.parser.yaml.LotsConfiguration;
+import fr.vergne.condominium.core.parser.yaml.DistrConfiguration;
 import fr.vergne.condominium.core.parser.yaml.TantiemesConfiguration;
 import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.Repository;
@@ -81,13 +81,15 @@ public class Main2 {
 		outFolderPath.toFile().mkdirs();
 		Path confTantiemesPath = confFolderPath.resolve("tantiemes.yaml");
 		Path confLotsPath = confFolderPath.resolve("lots.yaml");
+		Path confDistrPath = confFolderPath.resolve("distr.yaml");
 		Path path = outFolderPath.resolve("graphCharges.plantuml");
 		Path svgPath = outFolderPath.resolve("graphCharges.svg");
 
 		LOGGER.accept("=================");
 
 		LOGGER.accept("Read tantiemes conf");
-		LotsConfiguration confLots = LotsConfiguration.parser().apply(confLotsPath);
+		DistrConfiguration confLots = DistrConfiguration.parser().apply(confLotsPath);
+		DistrConfiguration confDistr = DistrConfiguration.parser().apply(confDistrPath);
 		TantiemesConfiguration confTantiemes = TantiemesConfiguration.parser().apply(confTantiemesPath);
 
 		LOGGER.accept("=================");
@@ -376,9 +378,9 @@ public class Main2 {
 			Variables variables = new Variables();
 
 			String lotPrefix = "Lot.";
-			List<String> lots = confLots.keySet().stream().map(id -> lotPrefix + id).toList();
+			Collection<String> lots = confLots.keySet();
 			// TODO Remove
-			List<String> lots2 = confLots.keySet().stream().filter(id -> id < 63).map(id -> lotPrefix + id).toList();
+			Collection<String> lots2 = confLots.keySet().stream().filter(id -> Integer.parseInt(id.substring(id.lastIndexOf(".") + 1)) < 63).toList();
 
 			/* STATIC SOURCE & STATIC INFO */
 			Calculation.Factory.Group setECS = calc.createGroup();
@@ -392,15 +394,24 @@ public class Main2 {
 				Map<String, Calculation> ecs = new HashMap<>();
 				Map<String, Calculation> cal = new HashMap<>();
 			};
+			System.out.println("LOTS:");
+			confLots.forEach((id, obj) -> {
+				System.out.println("  " + id + " = " + obj);
+				String lot = lotPrefix + id;
+				// TODO
+			});
 			lots2.stream().forEach(lot -> {
 				String eauPotableFroide = eauPotableFroidePrefix + lot;
-				graphModel.dispatch(eauPotableFroide).to(lot).taking(calc.everything());
-				data.eau.put(lot, calc.resource(waterKey, variables.valueOf(eauPotableFroide)));
 				String eauPotableChaude = eauPotableChaudePrefix + lot;
+				String elecCalorifique = elecCalorifiquePrefix + lot;
+				// Consume
+				graphModel.dispatch(eauPotableFroide).to(lot).taking(calc.everything());
 				graphModel.dispatch(eauPotableChaude).to(lot).taking(calc.everything());
+				graphModel.dispatch(elecCalorifique).to(lot).taking(calc.everything());
+				// Define
+				data.eau.put(lot, calc.resource(waterKey, variables.valueOf(eauPotableFroide)));
 				data.ecs.put(lot, setECS.part(variables.valueOf(eauPotableChaude)));
-				graphModel.dispatch(elecCalorifiquePrefix + lot).to(lot).taking(calc.everything());
-				data.cal.put(lot, setCal.part(variables.valueOf(elecCalorifiquePrefix + lot)));
+				data.cal.put(lot, setCal.part(variables.valueOf(elecCalorifique)));
 			});
 
 			String tantiemesPrefix = "Tantiemes.";
@@ -417,6 +428,11 @@ public class Main2 {
 			});
 
 			// TODO Retrieve distribution from CSV
+			System.out.println("DISTR:");
+			confDistr.forEach((id, obj) -> {
+				System.out.println("  " + id + " = " + obj);
+				// TODO
+			});
 			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";
 			graphModel.dispatch(elecChaufferieCombustibleECSTantiemes).to(tantiemesChauffage).taking(calc.everything());
 
