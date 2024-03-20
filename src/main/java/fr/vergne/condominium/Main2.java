@@ -51,6 +51,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import fr.vergne.condominium.Main2.Calculation.Factory;
 import fr.vergne.condominium.Main2.Calculation.Factory.Group;
 import fr.vergne.condominium.Main2.Calculation.Resources;
 import fr.vergne.condominium.core.mail.Mail;
@@ -61,7 +62,6 @@ import fr.vergne.condominium.core.monitorable.Issue;
 import fr.vergne.condominium.core.monitorable.Question;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser;
 import fr.vergne.condominium.core.parser.yaml.DistrConfiguration;
-import fr.vergne.condominium.core.parser.yaml.TantiemesConfiguration;
 import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.Repository;
 import fr.vergne.condominium.core.source.Source;
@@ -91,7 +91,7 @@ public class Main2 {
 		LOGGER.accept("Read tantiemes conf");
 		DistrConfiguration confLots = DistrConfiguration.parser().apply(confLotsPath);
 		DistrConfiguration confDistr = DistrConfiguration.parser().apply(confDistrPath);
-		TantiemesConfiguration confTantiemes = TantiemesConfiguration.parser().apply(confTantiemesPath);
+		DistrConfiguration confTantiemes = DistrConfiguration.parser().apply(confTantiemesPath);
 
 		LOGGER.accept("=================");
 		{
@@ -378,81 +378,23 @@ public class Main2 {
 			/* OUTPUT */
 			Variables variables = new Variables();
 
-			String lotPrefix = "Lot.";
-			Collection<String> lots = confLots.keySet();
 			// TODO Remove
 			Collection<String> lots2 = confLots.keySet().stream().filter(id -> Integer.parseInt(id.substring(id.lastIndexOf(".") + 1)) < 63).toList();
 
 			/* STATIC SOURCE & STATIC INFO */
-			String eauPotableFroidePrefix = "Eau.Potable.Froide.";
-			String eauPotableChaudePrefix = "Eau.Potable.Chaude.";
-			String elecCalorifiquePrefix = "Calorie.";
-			var data = new Object() {
-				Map<String, Map<String, Calculation>> defined = new HashMap<>();
-				Map<String, Group> groups = new HashMap<>();
-			};
-			confLots.forEach((lot, obj) -> {
-				if (obj instanceof Map<?, ?> map) {
-					Object consume = map.get("consume");
-					if (consume != null && consume instanceof Map<?, ?> consumeMap) {
-						consumeMap.forEach((k, v) -> {
-							String source = (String) k;
-							String calculationRef = (String) v;
-							Calculation calculation;
-							if (calculationRef.equals("100%")) {
-								calculation = calc.everything();
-							} else {
-								throw new UnsupportedOperationException("Not supported: " + v);
-							}
-							graphModel.dispatch(source).to(lot).taking(calculation);
-						});
-					} else {
-						System.out.println("No consume for " + lot);
-					}
+			Data data = new Data(new HashMap<>(), new HashMap<>());
+			confLots.forEach((lot, definition) -> feed(data, graphModel, variables, calc, calc::createGroup, lot, definition));
+			confTantiemes.forEach((tantiemes, definition) -> feed(data, graphModel, variables, calc, calc::createTantiemesGroup, tantiemes, definition));
 
-					Object define = map.get("define");
-					if (define != null && define instanceof Map<?, ?> defineMap) {
-						defineMap.forEach((k, v) -> {
-							String key = (String) k;
-							Calculation calculation;
-							if (v instanceof DistrConfiguration.ResourceDefiner resDef) {
-								String resourceKey = resDef.getResourceKey();
-								String valueRef = resDef.getValueRef();
-								Value<BigDecimal> value = createValue(variables, valueRef);
-								calculation = calc.resource(resourceKey, value);
-							} else if (v instanceof DistrConfiguration.GroupDefiner groupDef) {
-								String groupKey = groupDef.getGroupKey();
-								String valueRef = groupDef.getValueRef();
-								Value<BigDecimal> value = createValue(variables, valueRef);
-								Group group = data.groups.computeIfAbsent(groupKey, xk -> calc.createGroup());
-								calculation = group.part(value);
-							} else {
-								throw new UnsupportedOperationException("Not supported: " + v);
-							}
-							data.defined.computeIfAbsent(key, xk -> new HashMap<>()).put(lot, calculation);
-						});
-					} else {
-						System.out.println("No define for " + lot);
-					}
-				} else {
-					System.out.println("No data for " + lot);
-				}
-			});
-
-			String tantiemesPrefix = "Tantiemes.";
+			// TODO Retrieve distribution from CSV
+			String eauPotableFroidePrefix = "Eau.Potable.Froide.";// TODO Remove
+			String eauPotableChaudePrefix = "Eau.Potable.Chaude.";// TODO Remove
+			String elecCalorifiquePrefix = "Calorie.";// TODO Remove
+			String tantiemesPrefix = "Tantiemes.";// TODO Remove
 			String tantiemesPcs3 = tantiemesPrefix + "PCS3";// TODO Remove
 			String tantiemesPcs4 = tantiemesPrefix + "PCS4";// TODO Remove
 			String tantiemesChauffage = tantiemesPrefix + "ECS_Chauffage";// TODO Remove
 			String tantiemesRafraichissement = tantiemesPrefix + "Rafraichissement";// TODO Remove
-			confTantiemes.forEach((table, tantiemes) -> {
-				String tantiemesTable = tantiemesPrefix + table;
-				Calculation.Factory.Group tant = calc.createTantiemesGroup();
-				confTantiemes.get(table).forEach((lot, value) -> {
-					graphModel.dispatch(tantiemesTable).to(lot).taking(tant.part(BigInteger.valueOf(value)));
-				});
-			});
-
-			// TODO Retrieve distribution from CSV
 			System.out.println("DISTR:");
 			confDistr.forEach((id, obj) -> {
 				System.out.println("  " + id + " = " + obj);
@@ -561,6 +503,7 @@ public class Main2 {
 			/* VARIABLES */
 
 			{
+				String lotPrefix = "Lot.";// TODO Remove
 				for (int i = 1; i <= 62; i++) {
 					variables.set(eauPotableFroidePrefix + lotPrefix + i, new BigDecimal("1.0"));
 					variables.set(eauPotableChaudePrefix + lotPrefix + i, new BigDecimal("1.0"));
@@ -672,13 +615,78 @@ public class Main2 {
 
 	}
 
+	private static void feed(Data data, Graph.Model graphModel, Variables variables, Factory calc, Supplier<Group> groupFactory, String nodeId, Map<String, Map<String, Object>> nodeDefinition) {
+		Map<String, Object> consumeMap = nodeDefinition.get("consume");
+		if (consumeMap != null) {
+			consumeMap.forEach((source, calculationRef) -> {
+				Calculation calculation;
+				if (calculationRef.equals("100%")) {
+					calculation = calc.everything();
+				} else {
+					throw new UnsupportedOperationException("Not supported: " + calculationRef);
+				}
+				graphModel.dispatch(source).to(nodeId).taking(calculation);
+			});
+		} else {
+			System.out.println("No consume for " + nodeId);
+		}
+
+		Map<String, Object> dispatchMap = nodeDefinition.get("dispatch");
+		if (dispatchMap != null) {
+			dispatchMap.forEach((target, calculationRef) -> {
+				Calculation calculation;
+				if (calculationRef instanceof DistrConfiguration.GroupValue groupValue) {
+					String groupKey = groupValue.getGroupKey();
+					String valueRef = groupValue.getValueRef();
+					Value<BigDecimal> value = createValue(variables, valueRef);
+					Group group = data.groups.computeIfAbsent(groupKey, xk -> groupFactory.get());
+					calculation = group.part(value);
+				} else {
+					throw new UnsupportedOperationException("Not supported: " + calculationRef);
+				}
+				graphModel.dispatch(nodeId).to(target).taking(calculation);
+			});
+		} else {
+			System.out.println("No dispatch for " + nodeId);
+		}
+
+		Map<String, Object> defineMap = nodeDefinition.get("define");
+		if (defineMap != null) {
+			defineMap.forEach((key, v) -> {
+				Calculation calculation;
+				if (v instanceof DistrConfiguration.ResourceValue resourceValue) {
+					String resourceKey = resourceValue.getResourceKey();
+					String valueRef = resourceValue.getValueRef();
+					Value<BigDecimal> value = createValue(variables, valueRef);
+					calculation = calc.resource(resourceKey, value);
+				} else if (v instanceof DistrConfiguration.GroupValue groupValue) {
+					String groupKey = groupValue.getGroupKey();
+					String valueRef = groupValue.getValueRef();
+					Value<BigDecimal> value = createValue(variables, valueRef);
+					Group group = data.groups.computeIfAbsent(groupKey, xk -> groupFactory.get());
+					calculation = group.part(value);
+				} else {
+					throw new UnsupportedOperationException("Not supported: " + v);
+				}
+				data.defined.computeIfAbsent(key, xk -> new HashMap<>()).put(nodeId, calculation);
+			});
+		} else {
+			System.out.println("No define for " + nodeId);
+		}
+	}
+
 	private static Value<BigDecimal> createValue(Variables variables, String valueRef) {
 		Value<BigDecimal> value;
 		if (valueRef.startsWith("$")) {
 			String variableName = valueRef.substring(1);
 			value = variables.valueOf(variableName);
 		} else {
-			throw new UnsupportedOperationException("Not supported: " + valueRef);
+			try {
+				long intValue = Long.parseLong(valueRef);
+				value = () -> new BigDecimal(BigInteger.valueOf(intValue));
+			} catch (NumberFormatException cause) {
+				throw new UnsupportedOperationException("Not supported: " + valueRef);
+			}
 		}
 		return value;
 	}
@@ -1679,5 +1687,8 @@ public class Main2 {
 		public static boolean isPracticallyZero(BigDecimal value) {
 			return value.abs().compareTo(ERROR_MARGIN) <= 0;
 		}
+	}
+
+	record Data(Map<String, Map<String, Calculation>> defined, Map<String, Group> groups) {
 	}
 }

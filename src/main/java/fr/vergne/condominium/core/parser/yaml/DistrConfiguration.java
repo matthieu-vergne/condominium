@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.function.Function;
 
 import org.yaml.snakeyaml.LoaderOptions;
@@ -14,7 +15,7 @@ import org.yaml.snakeyaml.constructor.Constructor;
 import org.yaml.snakeyaml.nodes.Tag;
 
 @SuppressWarnings("serial")
-public class DistrConfiguration extends LinkedHashMap<String, Object> {
+public class DistrConfiguration extends LinkedHashMap<String, Map<String, Map<String, Object>>> {
 
 	public static Function<Path, DistrConfiguration> parser() {
 		class LotsConfigurationConstructor extends Constructor {
@@ -22,8 +23,8 @@ public class DistrConfiguration extends LinkedHashMap<String, Object> {
 			public LotsConfigurationConstructor(LoaderOptions loadingConfig) {
 				super(DistrConfiguration.class, loadingConfig);
 //				yamlConstructors.put(new Tag("!orFilter"), constructFromSequence(OrFilter::new));
-				addTypeDescription(new TypeDescription(GroupDefiner.class, new Tag("!set")));
-				addTypeDescription(new TypeDescription(ResourceDefiner.class, new Tag("!resource")));
+				addTypeDescription(new TypeDescription(GroupValue.class, new Tag("!group")));
+				addTypeDescription(new TypeDescription(ResourceValue.class, new Tag("!resource")));
 			}
 
 //			private <T> AbstractConstruct constructFromSequence(Function<List<T>, Object> constructor) {
@@ -52,11 +53,11 @@ public class DistrConfiguration extends LinkedHashMap<String, Object> {
 		};
 	}
 
-	public static class GroupDefiner {
+	public static class GroupValue {
 		private final String groupKey;
 		private final String valueRef;
 
-		public GroupDefiner(String arg) {
+		public GroupValue(String arg) {
 			String[] split = arg.split(" ");
 			if (split.length != 2) {
 				throw new IllegalArgumentException("Needs exactly 2 arguments, this is invalid: " + arg);
@@ -74,11 +75,11 @@ public class DistrConfiguration extends LinkedHashMap<String, Object> {
 		}
 	}
 
-	public static class ResourceDefiner {
+	public static class ResourceValue {
 		private final String resourceKey;
 		private final String valueRef;
 
-		public ResourceDefiner(String arg) {
+		public ResourceValue(String arg) {
 			String[] split = arg.split(" ");
 			if (split.length != 2) {
 				throw new IllegalArgumentException("Needs exactly 2 arguments, this is invalid: " + arg);
