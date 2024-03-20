@@ -22,7 +22,7 @@ public class DistrConfiguration extends LinkedHashMap<String, Object> {
 			public LotsConfigurationConstructor(LoaderOptions loadingConfig) {
 				super(DistrConfiguration.class, loadingConfig);
 //				yamlConstructors.put(new Tag("!orFilter"), constructFromSequence(OrFilter::new));
-				addTypeDescription(new TypeDescription(SetDefiner.class, new Tag("!set")));
+				addTypeDescription(new TypeDescription(GroupDefiner.class, new Tag("!set")));
 				addTypeDescription(new TypeDescription(ResourceDefiner.class, new Tag("!resource")));
 			}
 
@@ -52,15 +52,47 @@ public class DistrConfiguration extends LinkedHashMap<String, Object> {
 		};
 	}
 
-	public static class SetDefiner {
-		public SetDefiner(String arg) {
-			System.out.println(getClass().getSimpleName() + ": " + arg);
+	public static class GroupDefiner {
+		private final String groupKey;
+		private final String valueRef;
+
+		public GroupDefiner(String arg) {
+			String[] split = arg.split(" ");
+			if (split.length != 2) {
+				throw new IllegalArgumentException("Needs exactly 2 arguments, this is invalid: " + arg);
+			}
+			this.groupKey = split[0];
+			this.valueRef = split[1];
+		}
+
+		public String getGroupKey() {
+			return groupKey;
+		}
+
+		public String getValueRef() {
+			return valueRef;
 		}
 	}
 
 	public static class ResourceDefiner {
+		private final String resourceKey;
+		private final String valueRef;
+
 		public ResourceDefiner(String arg) {
-			System.out.println(getClass().getSimpleName() + ": " + arg);
+			String[] split = arg.split(" ");
+			if (split.length != 2) {
+				throw new IllegalArgumentException("Needs exactly 2 arguments, this is invalid: " + arg);
+			}
+			this.resourceKey = split[0];
+			this.valueRef = split[1];
+		}
+
+		public String getResourceKey() {
+			return resourceKey;
+		}
+
+		public String getValueRef() {
+			return valueRef;
 		}
 	}
 }

@@ -51,6 +51,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import fr.vergne.condominium.Main2.Calculation.Factory.Group;
 import fr.vergne.condominium.Main2.Calculation.Resources;
 import fr.vergne.condominium.core.mail.Mail;
 import fr.vergne.condominium.core.mail.Mail.Body;
@@ -383,35 +384,59 @@ public class Main2 {
 			Collection<String> lots2 = confLots.keySet().stream().filter(id -> Integer.parseInt(id.substring(id.lastIndexOf(".") + 1)) < 63).toList();
 
 			/* STATIC SOURCE & STATIC INFO */
-			Calculation.Factory.Group setECS = calc.createGroup();
-			Calculation.Factory.Group setCal = calc.createGroup();
-
 			String eauPotableFroidePrefix = "Eau.Potable.Froide.";
 			String eauPotableChaudePrefix = "Eau.Potable.Chaude.";
 			String elecCalorifiquePrefix = "Calorie.";
 			var data = new Object() {
-				Map<String, Calculation> eau = new HashMap<>();
-				Map<String, Calculation> ecs = new HashMap<>();
-				Map<String, Calculation> cal = new HashMap<>();
+				Map<String, Map<String, Calculation>> defined = new HashMap<>();
+				Map<String, Group> groups = new HashMap<>();
 			};
-			System.out.println("LOTS:");
-			confLots.forEach((id, obj) -> {
-				System.out.println("  " + id + " = " + obj);
-				String lot = lotPrefix + id;
-				// TODO
-			});
-			lots2.stream().forEach(lot -> {
-				String eauPotableFroide = eauPotableFroidePrefix + lot;
-				String eauPotableChaude = eauPotableChaudePrefix + lot;
-				String elecCalorifique = elecCalorifiquePrefix + lot;
-				// Consume
-				graphModel.dispatch(eauPotableFroide).to(lot).taking(calc.everything());
-				graphModel.dispatch(eauPotableChaude).to(lot).taking(calc.everything());
-				graphModel.dispatch(elecCalorifique).to(lot).taking(calc.everything());
-				// Define
-				data.eau.put(lot, calc.resource(waterKey, variables.valueOf(eauPotableFroide)));
-				data.ecs.put(lot, setECS.part(variables.valueOf(eauPotableChaude)));
-				data.cal.put(lot, setCal.part(variables.valueOf(elecCalorifique)));
+			confLots.forEach((lot, obj) -> {
+				if (obj instanceof Map<?, ?> map) {
+					Object consume = map.get("consume");
+					if (consume != null && consume instanceof Map<?, ?> consumeMap) {
+						consumeMap.forEach((k, v) -> {
+							String source = (String) k;
+							String calculationRef = (String) v;
+							Calculation calculation;
+							if (calculationRef.equals("100%")) {
+								calculation = calc.everything();
+							} else {
+								throw new UnsupportedOperationException("Not supported: " + v);
+							}
+							graphModel.dispatch(source).to(lot).taking(calculation);
+						});
+					} else {
+						System.out.println("No consume for " + lot);
+					}
+
+					Object define = map.get("define");
+					if (define != null && define instanceof Map<?, ?> defineMap) {
+						defineMap.forEach((k, v) -> {
+							String key = (String) k;
+							Calculation calculation;
+							if (v instanceof DistrConfiguration.ResourceDefiner resDef) {
+								String resourceKey = resDef.getResourceKey();
+								String valueRef = resDef.getValueRef();
+								Value<BigDecimal> value = createValue(variables, valueRef);
+								calculation = calc.resource(resourceKey, value);
+							} else if (v instanceof DistrConfiguration.GroupDefiner groupDef) {
+								String groupKey = groupDef.getGroupKey();
+								String valueRef = groupDef.getValueRef();
+								Value<BigDecimal> value = createValue(variables, valueRef);
+								Group group = data.groups.computeIfAbsent(groupKey, xk -> calc.createGroup());
+								calculation = group.part(value);
+							} else {
+								throw new UnsupportedOperationException("Not supported: " + v);
+							}
+							data.defined.computeIfAbsent(key, xk -> new HashMap<>()).put(lot, calculation);
+						});
+					} else {
+						System.out.println("No define for " + lot);
+					}
+				} else {
+					System.out.println("No data for " + lot);
+				}
 			});
 
 			String tantiemesPrefix = "Tantiemes.";
@@ -438,7 +463,7 @@ public class Main2 {
 
 			String elecChaufferieCombustibleECSCompteurs = "Elec.Chaufferie.combustibleECSCompteurs";
 			lots2.forEach(lot -> {
-				graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudePrefix + lot).taking(data.ecs.get(lot));
+				graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudePrefix + lot).taking(data.defined.get("ecs").get(lot));
 			});
 
 			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";
@@ -448,7 +473,7 @@ public class Main2 {
 
 			String elecChaufferieCombustibleRCCompteurs = "Elec.Chaufferie.combustibleRCCompteurs";
 			lots2.forEach(lot -> {
-				graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiquePrefix + lot).taking(data.cal.get(lot));
+				graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiquePrefix + lot).taking(data.defined.get("cal").get(lot));
 			});
 
 			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";
@@ -458,7 +483,7 @@ public class Main2 {
 
 			String elecChaufferieAutreMesures = "Elec.Chaufferie.autreMesures";
 			lots2.forEach(lot -> {
-				graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiquePrefix + lot).taking(data.cal.get(lot));
+				graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiquePrefix + lot).taking(data.defined.get("cal").get(lot));
 			});
 
 			/* STATIC SOURCE & DYNAMIC INFO */
@@ -472,7 +497,7 @@ public class Main2 {
 			String eauPotableGeneral = eauPotableFroidePrefix + "general";
 			graphModel.dispatch(eauPotableGeneral).to(eauPotableChaufferie).taking(eauChaufferie);
 			lots2.forEach(lot -> {
-				graphModel.dispatch(eauPotableGeneral).to(eauPotableFroidePrefix + lot).taking(data.eau.get(lot));
+				graphModel.dispatch(eauPotableGeneral).to(eauPotableFroidePrefix + lot).taking(data.defined.get("eau").get(lot));
 			});
 
 			String elecChaufferieAutre = "Elec.Chaufferie.autre";
@@ -645,6 +670,17 @@ public class Main2 {
 			LOGGER.accept("Done");
 		}
 
+	}
+
+	private static Value<BigDecimal> createValue(Variables variables, String valueRef) {
+		Value<BigDecimal> value;
+		if (valueRef.startsWith("$")) {
+			String variableName = valueRef.substring(1);
+			value = variables.valueOf(variableName);
+		} else {
+			throw new UnsupportedOperationException("Not supported: " + valueRef);
+		}
+		return value;
 	}
 
 	private static Graph.Instance createGraph(Graph.Model graphModel, Graph.Instance.Validator.Aggregator graphValidator, Calculation.Factory calculationFactory, List<String> displayedLots, String mergedName, List<String> resourceKeys) {
@@ -1416,21 +1452,11 @@ public class Main2 {
 				});
 				Comparator<Model.ID> idComparator = (id1, id2) -> {
 					if (isBefore.test(id1, id2)) {
-						System.out.println(id1 + " before " + id2);
 						return -1;
 					} else if (isBefore.test(id2, id1)) {
-						System.out.println(id2 + " before " + id1);
 						return 1;
 					} else {
-						int compare = idValueComparator.compare(id1, id2);
-						if (compare < 0) {
-							System.out.println(id1 + " before " + id2 + " (" + compare + ")");
-						} else if (compare > 0) {
-							System.out.println(id2 + " before " + id1 + " (" + compare + ")");
-						} else {
-							System.out.println(id1 + " == " + id2);
-						}
-						return compare;
+						return idValueComparator.compare(id1, id2);
 					}
 				};
 				return idComparator;
