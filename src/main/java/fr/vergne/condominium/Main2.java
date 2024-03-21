@@ -390,38 +390,24 @@ public class Main2 {
 			String eauPotableFroidePrefix = "Eau.Potable.Froide.";// TODO Remove
 			String eauPotableChaudePrefix = "Eau.Potable.Chaude.";// TODO Remove
 			String elecCalorifiquePrefix = "Calorie.";// TODO Remove
-			String tantiemesPrefix = "Tantiemes.";// TODO Remove
-			String tantiemesPcs3 = tantiemesPrefix + "PCS3";// TODO Remove
-			String tantiemesPcs4 = tantiemesPrefix + "PCS4";// TODO Remove
-			String tantiemesChauffage = tantiemesPrefix + "ECS_Chauffage";// TODO Remove
-			String tantiemesRafraichissement = tantiemesPrefix + "Rafraichissement";// TODO Remove
-			System.out.println("DISTR:");
-			confDistr.forEach((id, obj) -> {
-				System.out.println("  " + id + " = " + obj);
-				// TODO
-			});
-			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";
-			graphModel.dispatch(elecChaufferieCombustibleECSTantiemes).to(tantiemesChauffage).taking(calc.everything());
+			String tantiemesPcs3 = "Tantiemes.PCS3";// TODO Remove
+			String tantiemesPcs4 = "Tantiemes.PCS4";// TODO Remove
+			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";// TODO Remove
+			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";// TODO Remove
+			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";// TODO Remove
+			System.out.println("<<<<");
+			confDistr.forEach((id, definition) -> feed(data, graphModel, variables, calc, calc::createRatioGroup, id, definition));
+			System.out.println(">>>>");
 
 			String elecChaufferieCombustibleECSCompteurs = "Elec.Chaufferie.combustibleECSCompteurs";
 			lots2.forEach(lot -> {
 				graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudePrefix + lot).taking(data.defined.get("ecs").get(lot));
 			});
 
-			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";
-			Calculation.Factory.Group ratioRC = calc.createRatioGroup();
-			graphModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantiemesChauffage).taking(ratioRC.part(new BigDecimal("0.5")));
-			graphModel.dispatch(elecChaufferieCombustibleRCTantiemes).to(tantiemesRafraichissement).taking(ratioRC.part(new BigDecimal("0.5")));
-
 			String elecChaufferieCombustibleRCCompteurs = "Elec.Chaufferie.combustibleRCCompteurs";
 			lots2.forEach(lot -> {
 				graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiquePrefix + lot).taking(data.defined.get("cal").get(lot));
 			});
-
-			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";
-			Calculation.Factory.Group ratioChaufAutresTant = calc.createRatioGroup();
-			graphModel.dispatch(elecChaufferieAutreTantiemes).to(tantiemesChauffage).taking(ratioChaufAutresTant.part(new BigDecimal("0.5")));
-			graphModel.dispatch(elecChaufferieAutreTantiemes).to(tantiemesRafraichissement).taking(ratioChaufAutresTant.part(new BigDecimal("0.5")));
 
 			String elecChaufferieAutreMesures = "Elec.Chaufferie.autreMesures";
 			lots2.forEach(lot -> {
@@ -635,7 +621,12 @@ public class Main2 {
 		if (dispatchMap != null) {
 			dispatchMap.forEach((target, calculationRef) -> {
 				Calculation calculation;
-				if (calculationRef instanceof DistrConfiguration.GroupValue groupValue) {
+				if (calculationRef.equals("100%")) {
+					calculation = calc.everything();
+				} else if (calculationRef.equals("50%")) {
+					Group group = data.groups.computeIfAbsent(nodeId, xk -> groupFactory.get());
+					calculation = group.part(new BigDecimal("0.5"));
+				} else if (calculationRef instanceof DistrConfiguration.GroupValue groupValue) {
 					String groupKey = groupValue.getGroupKey();
 					String valueRef = groupValue.getValueRef();
 					Value<BigDecimal> value = createValue(variables, valueRef);
