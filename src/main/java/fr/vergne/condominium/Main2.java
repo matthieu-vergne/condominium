@@ -83,6 +83,7 @@ public class Main2 {
 		Path confTantiemesPath = confFolderPath.resolve("tantiemes.yaml");
 		Path confLotsPath = confFolderPath.resolve("lots.yaml");
 		Path confDistrPath = confFolderPath.resolve("distr.yaml");
+		Path confFactPath = confFolderPath.resolve("fact.yaml");
 		Path path = outFolderPath.resolve("graphCharges.plantuml");
 		Path svgPath = outFolderPath.resolve("graphCharges.svg");
 
@@ -90,8 +91,9 @@ public class Main2 {
 
 		LOGGER.accept("Read tantiemes conf");
 		DistrConfiguration confLots = DistrConfiguration.parser().apply(confLotsPath);
-		DistrConfiguration confDistr = DistrConfiguration.parser().apply(confDistrPath);
 		DistrConfiguration confTantiemes = DistrConfiguration.parser().apply(confTantiemesPath);
+		DistrConfiguration confDistr = DistrConfiguration.parser().apply(confDistrPath);
+		DistrConfiguration confFact = DistrConfiguration.parser().apply(confFactPath);
 
 		LOGGER.accept("=================");
 		{
@@ -384,90 +386,28 @@ public class Main2 {
 			/* STATIC SOURCE & STATIC INFO */
 			Data data = new Data(new HashMap<>(), new HashMap<>());
 			confLots.forEach((lot, definition) -> feed(data, graphModel, variables, calc, calc::createGroup, lot, definition));
+			// TODO Retrieve tantiemes from CSV converted to conf
 			confTantiemes.forEach((tantiemes, definition) -> feed(data, graphModel, variables, calc, calc::createTantiemesGroup, tantiemes, definition));
+			confDistr.forEach((id, definition) -> feed(data, graphModel, variables, calc, calc::createRatioGroup, id, definition));
 
-			// TODO Retrieve distribution from CSV
+			/* DYNAMIC SOURCE & DYNAMIC INFO */
 			String eauPotableFroidePrefix = "Eau.Potable.Froide.";// TODO Remove
 			String eauPotableChaudePrefix = "Eau.Potable.Chaude.";// TODO Remove
 			String elecCalorifiquePrefix = "Calorie.";// TODO Remove
-			String tantiemesPcs3 = "Tantiemes.PCS3";// TODO Remove
 			String tantiemesPcs4 = "Tantiemes.PCS4";// TODO Remove
-			String elecChaufferieCombustibleECSTantiemes = "Elec.Chaufferie.combustibleECSTantiemes";// TODO Remove
-			String elecChaufferieCombustibleRCTantiemes = "Elec.Chaufferie.combustibleRCTantiemes";// TODO Remove
-			String elecChaufferieAutreTantiemes = "Elec.Chaufferie.autreTantiemes";// TODO Remove
-			System.out.println("<<<<");
-			confDistr.forEach((id, definition) -> feed(data, graphModel, variables, calc, calc::createRatioGroup, id, definition));
-			System.out.println(">>>>");
-
-			String elecChaufferieCombustibleECSCompteurs = "Elec.Chaufferie.combustibleECSCompteurs";
-			lots2.forEach(lot -> {
-				graphModel.dispatch(elecChaufferieCombustibleECSCompteurs).to(eauPotableChaudePrefix + lot).taking(data.defined.get("ecs").get(lot));
-			});
-
-			String elecChaufferieCombustibleRCCompteurs = "Elec.Chaufferie.combustibleRCCompteurs";
-			lots2.forEach(lot -> {
-				graphModel.dispatch(elecChaufferieCombustibleRCCompteurs).to(elecCalorifiquePrefix + lot).taking(data.defined.get("cal").get(lot));
-			});
-
-			String elecChaufferieAutreMesures = "Elec.Chaufferie.autreMesures";
-			lots2.forEach(lot -> {
-				graphModel.dispatch(elecChaufferieAutreMesures).to(elecCalorifiquePrefix + lot).taking(data.defined.get("cal").get(lot));
-			});
-
-			/* STATIC SOURCE & DYNAMIC INFO */
-
-			String eauPotableChaufferie = eauPotableFroidePrefix + "chaufferie";
-			lots2.forEach(lot -> {
-				graphModel.dispatch(eauPotableChaufferie).to(eauPotableChaudePrefix + lot).taking(calc.resource(waterKey, variables.valueOf(eauPotableChaudePrefix + lot)));
-			});
-			Calculation eauChaufferie = calc.resource(waterKey, variables.valueOf(eauPotableChaufferie));
-
-			String eauPotableGeneral = eauPotableFroidePrefix + "general";
-			graphModel.dispatch(eauPotableGeneral).to(eauPotableChaufferie).taking(eauChaufferie);
-			lots2.forEach(lot -> {
-				graphModel.dispatch(eauPotableGeneral).to(eauPotableFroidePrefix + lot).taking(data.defined.get("eau").get(lot));
-			});
-
-			String elecChaufferieAutre = "Elec.Chaufferie.autre";
-			Calculation.Factory.Group ratioChaufAutres = calc.createRatioGroup();
-			graphModel.dispatch(elecChaufferieAutre).to(elecChaufferieAutreMesures).taking(ratioChaufAutres.part(new BigDecimal("0.5")));
-			graphModel.dispatch(elecChaufferieAutre).to(elecChaufferieAutreTantiemes).taking(ratioChaufAutres.part(new BigDecimal("0.5")));
-			Calculation mwhChaufferieAutre = calc.resource(mwhKey, variables.valueOf(elecChaufferieAutre));
-
-			String elecChaufferieCombustibleRC = "Elec.Chaufferie.combustibleRC";
-			Calculation.Factory.Group ratioCombustible = calc.createRatioGroup();
-			Calculation combustible30 = ratioCombustible.part(new BigDecimal("0.3"));
-			Calculation combustible70 = ratioCombustible.part(new BigDecimal("0.7"));
-			graphModel.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCTantiemes).taking(combustible30);
-			graphModel.dispatch(elecChaufferieCombustibleRC).to(elecChaufferieCombustibleRCCompteurs).taking(combustible70);
-			Calculation elecChaufferieCombustibleRc = calc.resource(mwhKey, variables.valueOf(elecChaufferieCombustibleRC));
-
-			String elecChaufferieCombustibleECS = "Elec.Chaufferie.combustibleECS";
-			graphModel.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSTantiemes).taking(combustible30);
-			graphModel.dispatch(elecChaufferieCombustibleECS).to(elecChaufferieCombustibleECSCompteurs).taking(combustible70);
-			Calculation elecChaufferieCombustibleEcs = calc.resource(mwhKey, variables.valueOf(elecChaufferieCombustibleECS));
-
-			String elecChaufferieCombustible = "Elec.Chaufferie.combustible";
-			graphModel.dispatch(elecChaufferieCombustible).to(elecChaufferieCombustibleECS).taking(elecChaufferieCombustibleEcs);
-			graphModel.dispatch(elecChaufferieCombustible).to(elecChaufferieCombustibleRC).taking(elecChaufferieCombustibleRc);
-			Calculation mwhChaufferieCombustible = calc.resource(mwhKey, variables.valueOf(elecChaufferieCombustible));
-
-			String elecChaufferieGeneral = "Elec.Chaufferie.general";
-			graphModel.dispatch(elecChaufferieGeneral).to(elecChaufferieCombustible).taking(mwhChaufferieCombustible);
-			graphModel.dispatch(elecChaufferieGeneral).to(elecChaufferieAutre).taking(mwhChaufferieAutre);
-			Calculation mwhChaufferie = calc.resource(mwhKey, variables.valueOf(elecChaufferieGeneral));
-
-			String elecTgbtAscenseurBoussole = "Elec.TGBT.ascenseur_boussole";
-			graphModel.dispatch(elecTgbtAscenseurBoussole).to(tantiemesPcs3).taking(calc.everything());
-			Calculation mwhTgbtAscenseurBoussole = calc.resource(mwhKey, variables.valueOf(elecTgbtAscenseurBoussole));
-
-			String elecTgbtGeneral = "Elec.TGBT.general";
-			graphModel.dispatch(elecTgbtGeneral).to(elecTgbtAscenseurBoussole).taking(mwhTgbtAscenseurBoussole);
-			graphModel.dispatch(elecTgbtGeneral).to(elecChaufferieGeneral).taking(mwhChaufferie);
-
-			/* DYNAMIC SOURCE & DYNAMIC INFO */
-
+			String eauPotableChaufferie = "Eau.Potable.Froide.chaufferie";// TODO Remove
+			String eauPotableGeneral = "Eau.Potable.Froide.general";// TODO Remove
+			String elecChaufferieAutre = "Elec.Chaufferie.autre";// TODO Remove
+			String elecChaufferieCombustibleRC = "Elec.Chaufferie.combustibleRC";// TODO Remove
+			String elecChaufferieCombustibleECS = "Elec.Chaufferie.combustibleECS";// TODO Remove
+			String elecChaufferieCombustible = "Elec.Chaufferie.combustible";// TODO Remove
+			String elecChaufferieGeneral = "Elec.Chaufferie.general";// TODO Remove
+			String elecTgbtAscenseurBoussole = "Elec.TGBT.ascenseur_boussole";// TODO Remove
+			String elecTgbtGeneral = "Elec.TGBT.general";// TODO Remove
 			String nextExercize = "Facture.2024";
+			System.out.println("<<<<");
+			confFact.forEach((id, definition) -> feed(data, graphModel, variables, calc, calc::createRatioGroup, id, definition));
+			System.out.println(">>>>");
 
 			// TODO Create variables? Assignments here
 			String factureElec = "Facture.Elec";
@@ -601,8 +541,11 @@ public class Main2 {
 
 	}
 
+	private static final String DEFINED_KEY_SEPARATOR = ":";
+
 	private static void feed(Data data, Graph.Model graphModel, Variables variables, Factory calc, Supplier<Group> groupFactory, String nodeId, Map<String, Map<String, Object>> nodeDefinition) {
-		Map<String, Object> consumeMap = nodeDefinition.get("consume");
+		String consumeKey = "consume";
+		Map<String, Object> consumeMap = nodeDefinition.get(consumeKey);
 		if (consumeMap != null) {
 			consumeMap.forEach((source, calculationRef) -> {
 				Calculation calculation;
@@ -617,21 +560,36 @@ public class Main2 {
 			System.out.println("No consume for " + nodeId);
 		}
 
-		Map<String, Object> dispatchMap = nodeDefinition.get("dispatch");
+		String dispatchKey = "dispatch";
+		Map<String, Object> dispatchMap = nodeDefinition.get(dispatchKey);
 		if (dispatchMap != null) {
 			dispatchMap.forEach((target, calculationRef) -> {
 				Calculation calculation;
-				if (calculationRef.equals("100%")) {
-					calculation = calc.everything();
-				} else if (calculationRef.equals("50%")) {
-					Group group = data.groups.computeIfAbsent(nodeId, xk -> groupFactory.get());
-					calculation = group.part(new BigDecimal("0.5"));
+				if (calculationRef instanceof String calculationStr) {
+					if (calculationStr.endsWith("%")) {
+						String numberStr = calculationStr.substring(0, calculationStr.length() - 1);
+						BigDecimal ratio = new BigDecimal(numberStr).movePointLeft(2);
+						Group group = data.groups.computeIfAbsent(nodeId, xk -> groupFactory.get());
+						calculation = group.part(ratio);
+					} else if (calculationStr.contains(DEFINED_KEY_SEPARATOR)) {
+						String[] split = calculationStr.split(DEFINED_KEY_SEPARATOR);
+						String targetId = split[0];
+						String key = split[1];
+						calculation = data.defined.get(key).get(targetId);
+					} else {
+						throw new UnsupportedOperationException("Not supported String: " + calculationStr);
+					}
 				} else if (calculationRef instanceof DistrConfiguration.GroupValue groupValue) {
 					String groupKey = groupValue.getGroupKey();
 					String valueRef = groupValue.getValueRef();
 					Value<BigDecimal> value = createValue(variables, valueRef);
 					Group group = data.groups.computeIfAbsent(groupKey, xk -> groupFactory.get());
 					calculation = group.part(value);
+				} else if (calculationRef instanceof DistrConfiguration.ResourceValue resourceValue) {
+					String resourceKey = resourceValue.getResourceKey();
+					String valueRef = resourceValue.getValueRef();
+					Value<BigDecimal> value = createValue(variables, valueRef);
+					calculation = calc.resource(resourceKey, value);
 				} else {
 					throw new UnsupportedOperationException("Not supported: " + calculationRef);
 				}
@@ -641,7 +599,8 @@ public class Main2 {
 			System.out.println("No dispatch for " + nodeId);
 		}
 
-		Map<String, Object> defineMap = nodeDefinition.get("define");
+		String defineKey = "define";
+		Map<String, Object> defineMap = nodeDefinition.get(defineKey);
 		if (defineMap != null) {
 			defineMap.forEach((key, v) -> {
 				Calculation calculation;
@@ -664,6 +623,12 @@ public class Main2 {
 		} else {
 			System.out.println("No define for " + nodeId);
 		}
+
+		nodeDefinition.keySet().stream()//
+				.filter(key -> !List.of(consumeKey, dispatchKey, defineKey).contains(key))//
+				.forEach(key -> {
+					throw new UnsupportedOperationException("Not supported: " + key);
+				});
 	}
 
 	private static Value<BigDecimal> createValue(Variables variables, String valueRef) {
