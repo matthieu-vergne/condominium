@@ -12,6 +12,7 @@ import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.mapping;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 
 import java.io.ByteArrayOutputStream;
@@ -40,6 +41,7 @@ import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
@@ -48,6 +50,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -62,6 +65,8 @@ import fr.vergne.condominium.core.monitorable.Issue;
 import fr.vergne.condominium.core.monitorable.Question;
 import fr.vergne.condominium.core.parser.mbox.MBoxParser;
 import fr.vergne.condominium.core.parser.yaml.DistrConfiguration;
+import fr.vergne.condominium.core.parser.yaml.GraphConfiguration;
+import fr.vergne.condominium.core.parser.yaml.VarsConfiguration;
 import fr.vergne.condominium.core.repository.FileRepository;
 import fr.vergne.condominium.core.repository.Repository;
 import fr.vergne.condominium.core.source.Source;
@@ -71,10 +76,12 @@ import fr.vergne.condominium.core.util.Serializer;
 import net.sourceforge.plantuml.FileFormat;
 import net.sourceforge.plantuml.FileFormatOption;
 import net.sourceforge.plantuml.SourceStringReader;
-import net.sourceforge.plantuml.classdiagram.command.CommandCreateElementFull2.Mode;
 
 public class Main2 {
 	private static final Consumer<Object> LOGGER = System.out::println;
+
+	private static final String VARIABLE_PREFIX = "$";
+	private static final String DEFINED_KEY_SEPARATOR = ":";
 
 	public static void main(String[] args) throws IOException {
 		Path confFolderPath = Paths.get(System.getProperty("confFolder"));
@@ -84,6 +91,8 @@ public class Main2 {
 		Path confLotsPath = confFolderPath.resolve("lots.yaml");
 		Path confDistrPath = confFolderPath.resolve("distr.yaml");
 		Path confFactPath = confFolderPath.resolve("fact.yaml");
+		Path confVarsPath = confFolderPath.resolve("vars.yaml");
+		Path confGraphPath = confFolderPath.resolve("graph.yaml");
 		Path path = outFolderPath.resolve("graphCharges.plantuml");
 		Path svgPath = outFolderPath.resolve("graphCharges.svg");
 
@@ -94,6 +103,8 @@ public class Main2 {
 		DistrConfiguration confTantiemes = DistrConfiguration.parser().apply(confTantiemesPath);
 		DistrConfiguration confDistr = DistrConfiguration.parser().apply(confDistrPath);
 		DistrConfiguration confFact = DistrConfiguration.parser().apply(confFactPath);
+		VarsConfiguration confVars = VarsConfiguration.parser().apply(confVarsPath);
+		GraphConfiguration confGraph = GraphConfiguration.parser().apply(confGraphPath);
 
 		LOGGER.accept("=================");
 		{
@@ -104,19 +115,17 @@ public class Main2 {
 //			mailHistory.writeScript(historyScriptPath);
 //			mailHistory.writeSvg(historyPath);
 
-			/* STATIC INFO: MEASURED RESOURCES */
-
-			String mwhKey = "elec";
-			String waterKey = "eau";
-			String eurosKey = "euros";
-
-			List<String> resourceKeys = List.of(mwhKey, waterKey, eurosKey);
+			Collection<String> resourceKeys = confGraph.getResources().keySet();
 			Graph.Instance.Validator.Aggregator graphValidator = new Graph.Instance.Validator.Aggregator(resourceKeys);
 
 			Calculation.Factory.Base baseCalculationFactory = new Calculation.Factory.Base(graphValidator);
 
+			// TODO Make instanciable
+			// TODO Instantiate ABSOLUTE on the fly for reduction
+			// TODO Create others from graph conf
+			// TODO Reduce MWH and WATER to RESOURCE or RESOURCE(key)?
 			enum Mode {
-				RATIO, SET, MWH, WATER, TANTIEMES, ABSOLUTE
+				RATIO, GROUP, MWH, WATER, TANTIEMES, ABSOLUTE
 			}
 			record EnrichedCalculation(Calculation delegate, Mode mode, Value<BigDecimal> value) implements Calculation {
 				@Override
@@ -124,13 +133,14 @@ public class Main2 {
 					return delegate.compute(source);
 				}
 			}
+			Map<Mode, String> modeResources = confGraph.getResources().entrySet().stream()//
+					.filter(entry -> entry.getValue().getMode() != null)//
+					.collect(toMap(entry -> Mode.valueOf(entry.getValue().getMode()), Entry::getKey));
 			var enrichedCalculationFactory = new Calculation.Factory() {
 
 				private final Calculation.Factory factory = baseCalculationFactory;
-				private final Map<String, Mode> resourceModes = Map.of(//
-						mwhKey, Mode.MWH, //
-						waterKey, Mode.WATER//
-				);
+				private final Map<String, Mode> resourceModes = modeResources.entrySet().stream()//
+						.collect(toMap(Entry::getValue, Entry::getKey));
 
 				EnrichedCalculation enrich(Calculation calculation) {
 					return (EnrichedCalculation) calculation;
@@ -146,7 +156,7 @@ public class Main2 {
 
 					EnrichedCalculation enrichedCalculation = enrich(calculation);
 					Mode mode = enrichedCalculation.mode;
-					if (List.of(Mode.RATIO, Mode.WATER, Mode.MWH, Mode.SET, Mode.TANTIEMES).contains(mode)) {
+					if (List.of(Mode.RATIO, Mode.WATER, Mode.MWH, Mode.GROUP, Mode.TANTIEMES).contains(mode)) {
 						Calculation absolute = newSource -> enrichedCalculation.delegate().compute(source);
 						EnrichedCalculation absolutedCalculation = new EnrichedCalculation(absolute, Mode.ABSOLUTE, null);
 						original.put(absolutedCalculation, enrichedCalculation);
@@ -181,7 +191,7 @@ public class Main2 {
 						EnrichedCalculation relativeCalculation = original.get(leaf);
 						relativeCalculations.add(relativeCalculation);
 						Mode mode = relativeCalculation.mode();
-						if (List.of(Mode.RATIO, Mode.WATER, Mode.MWH, Mode.SET, Mode.TANTIEMES).contains(mode)) {
+						if (List.of(Mode.RATIO, Mode.WATER, Mode.MWH, Mode.GROUP, Mode.TANTIEMES).contains(mode)) {
 							if (relativeMode == null) {
 								relativeMode = mode;
 							} else if (!relativeMode.equals(mode)) {
@@ -229,7 +239,8 @@ public class Main2 {
 						return new EnrichedCalculation(src -> src.multiply(ratio), Mode.RATIO, () -> ratio);
 					} else if (relativeMode.equals(Mode.WATER)) {
 						Resources resources = enrichedCalculation.compute(null);
-						BigDecimal resource = resources.resource(waterKey).orElseThrow(() -> new IllegalStateException(Mode.WATER + " mode but no " + waterKey + " resource"));
+						String resourceKey = modeResources.get(relativeMode);
+						BigDecimal resource = resources.resource(resourceKey).orElseThrow(() -> new IllegalStateException(Mode.WATER + " mode but no " + resourceKey + " resource"));
 						return new EnrichedCalculation(src -> resources, Mode.WATER, () -> resource);
 					} else if (relativeMode.equals(Mode.TANTIEMES)) {
 						Resources resources = enrichedCalculation.compute(null);
@@ -263,7 +274,7 @@ public class Main2 {
 							return relativeCalculations.stream().map(EnrichedCalculation::value).map(Value::get).reduce(BigDecimal::add).orElseThrow();
 						};
 						return new EnrichedCalculation(src -> src.multiply(ratio), Mode.TANTIEMES, value);
-					} else if (relativeMode.equals(Mode.SET)) {
+					} else if (relativeMode.equals(Mode.GROUP)) {
 						Resources resources = enrichedCalculation.compute(null);
 						BigDecimal ratio = resourceKeys.stream()//
 								.map(resourceKey -> {
@@ -294,7 +305,7 @@ public class Main2 {
 						Value<BigDecimal> value = () -> {
 							return relativeCalculations.stream().map(EnrichedCalculation::value).map(Value::get).reduce(BigDecimal::add).orElseThrow();
 						};
-						return new EnrichedCalculation(src -> src.multiply(ratio), Mode.SET, value);
+						return new EnrichedCalculation(src -> src.multiply(ratio), Mode.GROUP, value);
 					} else {
 						throw new UnsupportedOperationException("Not supported: " + relativeMode);
 					}
@@ -337,7 +348,7 @@ public class Main2 {
 
 				@Override
 				public Calculation.Factory.Group createGroup() {
-					return createGroup(Mode.SET);
+					return createGroup(Mode.GROUP);
 				}
 
 				public Calculation.Factory.Group createRatioGroup() {
@@ -375,91 +386,24 @@ public class Main2 {
 				}
 			};
 			var calc = enrichedCalculationFactory;
-			Graph.Model graphModel = new Graph.Model();
 
-			/* OUTPUT */
-			Variables variables = new Variables();
-
-			// TODO Remove
-			Collection<String> lots2 = confLots.keySet().stream().filter(id -> Integer.parseInt(id.substring(id.lastIndexOf(".") + 1)) < 63).toList();
-
-			/* STATIC SOURCE & STATIC INFO */
+			/* GRAPH BUILDING */
 			Data data = new Data(new HashMap<>(), new HashMap<>());
-			confLots.forEach((lot, definition) -> feed(data, graphModel, variables, calc, calc::createGroup, lot, definition));
+			Variables variables = new Variables();
+			Graph.Model graphModel = new Graph.Model();
+			confLots.forEach((lot, definition) -> feedGraphModel(data, graphModel, variables, calc, calc::createGroup, calc::createRatioGroup, lot, definition));
 			// TODO Retrieve tantiemes from CSV converted to conf
-			confTantiemes.forEach((tantiemes, definition) -> feed(data, graphModel, variables, calc, calc::createTantiemesGroup, tantiemes, definition));
-			confDistr.forEach((id, definition) -> feed(data, graphModel, variables, calc, calc::createRatioGroup, id, definition));
-
-			/* DYNAMIC SOURCE & DYNAMIC INFO */
-			String eauPotableFroidePrefix = "Eau.Potable.Froide.";// TODO Remove
-			String eauPotableChaudePrefix = "Eau.Potable.Chaude.";// TODO Remove
-			String elecCalorifiquePrefix = "Calorie.";// TODO Remove
-			String tantiemesPcs4 = "Tantiemes.PCS4";// TODO Remove
-			String eauPotableChaufferie = "Eau.Potable.Froide.chaufferie";// TODO Remove
-			String eauPotableGeneral = "Eau.Potable.Froide.general";// TODO Remove
-			String elecChaufferieAutre = "Elec.Chaufferie.autre";// TODO Remove
-			String elecChaufferieCombustibleRC = "Elec.Chaufferie.combustibleRC";// TODO Remove
-			String elecChaufferieCombustibleECS = "Elec.Chaufferie.combustibleECS";// TODO Remove
-			String elecChaufferieCombustible = "Elec.Chaufferie.combustible";// TODO Remove
-			String elecChaufferieGeneral = "Elec.Chaufferie.general";// TODO Remove
-			String elecTgbtAscenseurBoussole = "Elec.TGBT.ascenseur_boussole";// TODO Remove
-			String elecTgbtGeneral = "Elec.TGBT.general";// TODO Remove
-			String nextExercize = "Facture.2024";
-			System.out.println("<<<<");
-			confFact.forEach((id, definition) -> feed(data, graphModel, variables, calc, calc::createRatioGroup, id, definition));
-			System.out.println(">>>>");
-
-			// TODO Create variables? Assignments here
-			String factureElec = "Facture.Elec";
-			graphModel.assign(factureElec, mwhKey, new BigDecimal("100.0"));
-			graphModel.assign(factureElec, eurosKey, new BigDecimal("1000.0"));
-			graphModel.dispatch(factureElec).to(elecTgbtGeneral).taking(calc.resource(mwhKey, new BigDecimal("60.0")));
-			graphModel.dispatch(factureElec).to(nextExercize).taking(calc.resource(mwhKey, new BigDecimal("40.0")));
-
-			String factureWater = "Facture.Eau";
-			graphModel.assign(factureWater, waterKey, new BigDecimal("150.0"));
-			graphModel.assign(factureWater, eurosKey, new BigDecimal("1000.0"));
-			graphModel.dispatch(factureWater).to(eauPotableGeneral).taking(calc.resource(waterKey, new BigDecimal("124")));
-			graphModel.dispatch(factureWater).to(nextExercize).taking(calc.resource(waterKey, new BigDecimal("26")));
-
-			String facturePoubellesBoussole = "Facture.PoubelleBoussole";
-			graphModel.assign(facturePoubellesBoussole, eurosKey, new BigDecimal("100.0"));
-			graphModel.dispatch(facturePoubellesBoussole).to(tantiemesPcs4).taking(calc.everything());
-
-			/* VARIABLES */
-
-			{
-				String lotPrefix = "Lot.";// TODO Remove
-				for (int i = 1; i <= 62; i++) {
-					variables.set(eauPotableFroidePrefix + lotPrefix + i, new BigDecimal("1.0"));
-					variables.set(eauPotableChaudePrefix + lotPrefix + i, new BigDecimal("1.0"));
-					variables.set(elecCalorifiquePrefix + lotPrefix + i, new BigDecimal("1.0"));
-				}
-				variables.set(eauPotableChaufferie, new BigDecimal("62.0"));
-
-				variables.set(elecTgbtAscenseurBoussole, new BigDecimal("10.0"));
-				variables.set(elecChaufferieGeneral, new BigDecimal("50.0"));
-				variables.set(elecChaufferieCombustible, new BigDecimal("30.0"));
-				variables.set(elecChaufferieCombustibleECS, new BigDecimal("15.0"));
-				variables.set(elecChaufferieCombustibleRC, new BigDecimal("15.0"));
-				variables.set(elecChaufferieAutre, new BigDecimal("20.0"));
-
-				// TODO Remove
-				lots2.stream()//
-						.flatMap(lot -> Stream.of(eauPotableChaudePrefix + lot, eauPotableFroidePrefix + lot, elecCalorifiquePrefix + lot))//
-						.filter(key -> !variables.values.containsKey(key))//
-						.forEach(key -> variables.set(key, BigDecimal.ZERO));
-			}
-
-			List<String> lotsToDisplay = List.of("Lot.32", "Lot.33");
-			String mergedName = "autres";
+			confTantiemes.forEach((tantiemes, definition) -> feedGraphModel(data, graphModel, variables, calc, calc::createTantiemesGroup, calc::createRatioGroup, tantiemes, definition));
+			confDistr.forEach((id, definition) -> feedGraphModel(data, graphModel, variables, calc, calc::createGroup, calc::createRatioGroup, id, definition));
+			confFact.forEach((id, definition) -> feedGraphModel(data, graphModel, variables, calc, calc::createGroup, calc::createRatioGroup, id, definition));
+			confVars.forEach((id, value) -> feedVariables(variables, id, value));
 
 			// Add global validators after specific validators were introduced in model building
 			graphValidator.addValidator(Graph.Instance.Validator.checkLinksFullyConsumeTheirSourceNode());
 			graphValidator.addValidator(Graph.Instance.Validator.checkLinksFullyFeedTheirTargetNode());
 			graphValidator.addValidator(Graph.Instance.Validator.checkResourcesFromRootsAmountToResourcesFromLeaves());
 
-			Graph.Instance graphInstance = createGraph(graphModel, graphValidator, calc, lotsToDisplay, mergedName, resourceKeys);
+			Graph.Instance graphInstance = createGraph(graphModel, graphValidator, calc, id -> id.value().matches(confGraph.getDisplayedLotRegex()), confGraph.getMergedName(), resourceKeys);
 
 			String title = "Charges";// "Charges " + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now());
 
@@ -469,11 +413,10 @@ public class Main2 {
 			scriptStream.println("@startuml");
 			scriptStream.println("title \"" + title + "\"");
 			scriptStream.println("left to right direction");
-			Map<String, String> resourceRenderer = Map.of(//
-					mwhKey, "MWh", //
-					waterKey, "m³", //
-					eurosKey, "€"//
-			);
+			Map<String, String> resourceRenderer = confGraph.getResources().entrySet().stream().collect(toMap(//
+					entry -> entry.getKey(), //
+					entry -> entry.getValue().getRender()//
+			));
 			Comparator<Graph.Model.ID> idComparator = comparing(Graph.Model.ID::value);
 			Comparator<Graph.Instance.Node> nodeComparator = comparing(Graph.Instance.Node::id, idComparator);
 			graphInstance.vertices()//
@@ -499,12 +442,10 @@ public class Main2 {
 							yield value.multiply(new BigDecimal("100")).stripTrailingZeros().toPlainString() + " %";
 						case TANTIEMES:
 							yield value.toPlainString() + " t";
-						case MWH:
-							yield value.toPlainString() + " " + resourceRenderer.get(mwhKey);
-						case WATER:
-							yield value.toPlainString() + " " + resourceRenderer.get(waterKey);
-						case SET:
-							yield value.toPlainString() + " from set";
+						case MWH, WATER:
+							yield value.toPlainString() + " " + resourceRenderer.get(modeResources.get(mode));
+						case GROUP:
+							yield value.toPlainString() + " from group";
 						case ABSOLUTE:// TODO Remove? Should be temporary
 							throw new IllegalStateException("Not supposed to be here");
 						};
@@ -541,20 +482,17 @@ public class Main2 {
 
 	}
 
-	private static final String DEFINED_KEY_SEPARATOR = ":";
+	private static void feedVariables(Variables variables, String id, Object valueRef) {
+		variables.set(id, createRawValue(variables, valueRef));
+	}
 
-	private static void feed(Data data, Graph.Model graphModel, Variables variables, Factory calc, Supplier<Group> groupFactory, String nodeId, Map<String, Map<String, Object>> nodeDefinition) {
+	private static void feedGraphModel(Data data, Graph.Model graphModel, Variables variables, Factory calc, Supplier<Group> resourceGroupFactory, Supplier<Group> ratioGroupFactory, String nodeId, Map<String, Map<String, Object>> nodeDefinition) {
 		String consumeKey = "consume";
 		Map<String, Object> consumeMap = nodeDefinition.get(consumeKey);
 		if (consumeMap != null) {
-			consumeMap.forEach((source, calculationRef) -> {
-				Calculation calculation;
-				if (calculationRef.equals("100%")) {
-					calculation = calc.everything();
-				} else {
-					throw new UnsupportedOperationException("Not supported: " + calculationRef);
-				}
-				graphModel.dispatch(source).to(nodeId).taking(calculation);
+			consumeMap.forEach((sourceId, calculationRef) -> {
+				Calculation calculation = createCalculation(data, variables, calc, resourceGroupFactory, ratioGroupFactory, sourceId, calculationRef);
+				graphModel.dispatch(sourceId).to(nodeId).taking(calculation);
 			});
 		} else {
 			System.out.println("No consume for " + nodeId);
@@ -563,37 +501,9 @@ public class Main2 {
 		String dispatchKey = "dispatch";
 		Map<String, Object> dispatchMap = nodeDefinition.get(dispatchKey);
 		if (dispatchMap != null) {
-			dispatchMap.forEach((target, calculationRef) -> {
-				Calculation calculation;
-				if (calculationRef instanceof String calculationStr) {
-					if (calculationStr.endsWith("%")) {
-						String numberStr = calculationStr.substring(0, calculationStr.length() - 1);
-						BigDecimal ratio = new BigDecimal(numberStr).movePointLeft(2);
-						Group group = data.groups.computeIfAbsent(nodeId, xk -> groupFactory.get());
-						calculation = group.part(ratio);
-					} else if (calculationStr.contains(DEFINED_KEY_SEPARATOR)) {
-						String[] split = calculationStr.split(DEFINED_KEY_SEPARATOR);
-						String targetId = split[0];
-						String key = split[1];
-						calculation = data.defined.get(key).get(targetId);
-					} else {
-						throw new UnsupportedOperationException("Not supported String: " + calculationStr);
-					}
-				} else if (calculationRef instanceof DistrConfiguration.GroupValue groupValue) {
-					String groupKey = groupValue.getGroupKey();
-					String valueRef = groupValue.getValueRef();
-					Value<BigDecimal> value = createValue(variables, valueRef);
-					Group group = data.groups.computeIfAbsent(groupKey, xk -> groupFactory.get());
-					calculation = group.part(value);
-				} else if (calculationRef instanceof DistrConfiguration.ResourceValue resourceValue) {
-					String resourceKey = resourceValue.getResourceKey();
-					String valueRef = resourceValue.getValueRef();
-					Value<BigDecimal> value = createValue(variables, valueRef);
-					calculation = calc.resource(resourceKey, value);
-				} else {
-					throw new UnsupportedOperationException("Not supported: " + calculationRef);
-				}
-				graphModel.dispatch(nodeId).to(target).taking(calculation);
+			dispatchMap.forEach((targetId, calculationRef) -> {
+				Calculation calculation = createCalculation(data, variables, calc, resourceGroupFactory, ratioGroupFactory, nodeId, calculationRef);
+				graphModel.dispatch(nodeId).to(targetId).taking(calculation);
 			});
 		} else {
 			System.out.println("No dispatch for " + nodeId);
@@ -602,52 +512,98 @@ public class Main2 {
 		String defineKey = "define";
 		Map<String, Object> defineMap = nodeDefinition.get(defineKey);
 		if (defineMap != null) {
-			defineMap.forEach((key, v) -> {
-				Calculation calculation;
-				if (v instanceof DistrConfiguration.ResourceValue resourceValue) {
-					String resourceKey = resourceValue.getResourceKey();
-					String valueRef = resourceValue.getValueRef();
-					Value<BigDecimal> value = createValue(variables, valueRef);
-					calculation = calc.resource(resourceKey, value);
-				} else if (v instanceof DistrConfiguration.GroupValue groupValue) {
-					String groupKey = groupValue.getGroupKey();
-					String valueRef = groupValue.getValueRef();
-					Value<BigDecimal> value = createValue(variables, valueRef);
-					Group group = data.groups.computeIfAbsent(groupKey, xk -> groupFactory.get());
-					calculation = group.part(value);
-				} else {
-					throw new UnsupportedOperationException("Not supported: " + v);
-				}
+			defineMap.forEach((key, calculationRef) -> {
+				Calculation calculation = createCalculation(data, variables, calc, resourceGroupFactory, ratioGroupFactory, nodeId, calculationRef);
 				data.defined.computeIfAbsent(key, xk -> new HashMap<>()).put(nodeId, calculation);
 			});
 		} else {
 			System.out.println("No define for " + nodeId);
 		}
 
+		String assignKey = "assign";
+		Map<String, Object> assignMap = nodeDefinition.get(assignKey);
+		if (assignMap != null) {
+			assignMap.forEach((key, valueRef) -> {
+				graphModel.assign(nodeId, key, createRawValue(variables, valueRef));
+			});
+		} else {
+			System.out.println("No define for " + nodeId);
+		}
+
 		nodeDefinition.keySet().stream()//
-				.filter(key -> !List.of(consumeKey, dispatchKey, defineKey).contains(key))//
-				.forEach(key -> {
+				.filter(key -> !List.of(consumeKey, dispatchKey, defineKey, assignKey).contains(key))//
+				.findAny().ifPresent(key -> {
 					throw new UnsupportedOperationException("Not supported: " + key);
 				});
 	}
 
+	private static Calculation createCalculation(Data data, Variables variables, Factory calc, Supplier<Group> groupFactory, Supplier<Group> ratioGroupFactory, String sourceId, Object calculationRef) {
+		if (calculationRef instanceof String calculationStr) {
+			if (calculationStr.endsWith("%")) {
+				String numberStr = calculationStr.substring(0, calculationStr.length() - 1);
+				BigDecimal ratio = new BigDecimal(numberStr).movePointLeft(2);
+				Group group = data.groups.computeIfAbsent(sourceId, xk -> ratioGroupFactory.get());
+				return group.part(ratio);
+			} else if (calculationStr.contains(DEFINED_KEY_SEPARATOR)) {
+				String[] split = calculationStr.split(DEFINED_KEY_SEPARATOR);
+				String targetId = split[0];
+				String key = split[1];
+				return data.defined.get(key).get(targetId);
+			} else {
+				throw new UnsupportedOperationException("Not supported String: " + calculationStr);
+			}
+		} else if (calculationRef instanceof DistrConfiguration.GroupValue groupValue) {
+			String groupKey = groupValue.getGroupKey();
+			String valueRef = groupValue.getValueRef();
+			Value<BigDecimal> value = createValue(variables, valueRef);
+			Group group = data.groups.computeIfAbsent(groupKey, xk -> groupFactory.get());
+			return group.part(value);
+		} else if (calculationRef instanceof DistrConfiguration.ResourceValue resourceValue) {
+			String resourceKey = resourceValue.getResourceKey();
+			String valueRef = resourceValue.getValueRef();
+			Value<BigDecimal> value = createValue(variables, valueRef);
+			return calc.resource(resourceKey, value);
+		} else {
+			throw new UnsupportedOperationException("Not supported: " + calculationRef);
+		}
+	}
+
+	private static BigDecimal createRawValue(Variables variables, Object valueRef) {
+		BigDecimal value;
+		if (valueRef instanceof Double doubleValue) {
+			value = BigDecimal.valueOf(doubleValue);
+		} else if (valueRef instanceof Integer intValue) {
+			value = BigDecimal.valueOf(intValue);
+		} else if (valueRef instanceof String strValue) {
+			if (strValue.startsWith(VARIABLE_PREFIX)) {
+				String variableName = strValue.substring(VARIABLE_PREFIX.length());
+				value = variables.get(variableName);
+			} else {
+				throw new UnsupportedOperationException("Not supported String: " + valueRef);
+			}
+		} else {
+			throw new UnsupportedOperationException("Not supported: " + valueRef);
+		}
+		return value;
+	}
+
 	private static Value<BigDecimal> createValue(Variables variables, String valueRef) {
 		Value<BigDecimal> value;
-		if (valueRef.startsWith("$")) {
+		if (valueRef.startsWith(VARIABLE_PREFIX)) {
 			String variableName = valueRef.substring(1);
 			value = variables.valueOf(variableName);
 		} else {
 			try {
-				long intValue = Long.parseLong(valueRef);
-				value = () -> new BigDecimal(BigInteger.valueOf(intValue));
+				BigDecimal number = new BigDecimal(valueRef);
+				value = () -> number;
 			} catch (NumberFormatException cause) {
-				throw new UnsupportedOperationException("Not supported: " + valueRef);
+				throw new UnsupportedOperationException("Not supported: " + valueRef, cause);
 			}
 		}
 		return value;
 	}
 
-	private static Graph.Instance createGraph(Graph.Model graphModel, Graph.Instance.Validator.Aggregator graphValidator, Calculation.Factory calculationFactory, List<String> displayedLots, String mergedName, List<String> resourceKeys) {
+	private static Graph.Instance createGraph(Graph.Model graphModel, Graph.Instance.Validator.Aggregator graphValidator, Calculation.Factory calculationFactory, Predicate<Graph.Model.ID> displayedLotPredicate, String mergedName, Collection<String> resourceKeys) {
 		var data = new Object() {
 			Graph.Instance graph;
 			boolean idMergerIsCalled;
@@ -661,7 +617,7 @@ public class Main2 {
 		List<Graph.Model.ID> lotsToMerge = data.graph.vertices()//
 				.map(Graph.Instance.Node::id)//
 				.filter(id -> id.value().startsWith("Lot."))//
-				.filter(id -> !displayedLots.contains(id.value()))//
+				.filter(not(displayedLotPredicate))//
 				.toList();
 
 		// Establish naming rules for merged nodes
@@ -704,7 +660,7 @@ public class Main2 {
 		};
 	}
 
-	private static Graph.Instance reduceNodes(Graph.Instance graph, Calculation.Factory calc, Function<List<Graph.Model.ID>, Graph.Model.ID> idMerger, List<String> resourceKeys) {
+	private static Graph.Instance reduceNodes(Graph.Instance graph, Calculation.Factory calc, Function<List<Graph.Model.ID>, Graph.Model.ID> idMerger, Collection<String> resourceKeys) {
 		var data = new Object() {
 			Graph.Instance graph;
 		};
@@ -745,7 +701,7 @@ public class Main2 {
 		return value.substring(0, prefixEnd);
 	}
 
-	private static Graph.Instance mergeNodes(Graph.Instance graph, Calculation.Factory calc, Collection<Graph.Model.ID> mergingNodeIds, Graph.Model.ID mergedNodeId, List<String> resourceKeys) {
+	private static Graph.Instance mergeNodes(Graph.Instance graph, Calculation.Factory calc, Collection<Graph.Model.ID> mergingNodeIds, Graph.Model.ID mergedNodeId, Collection<String> resourceKeys) {
 		LOGGER.accept("Merging as " + mergedNodeId.value() + " from " + mergingNodeIds.stream().map(Graph.Model.ID::value).toList());
 
 		var data = new Object() {

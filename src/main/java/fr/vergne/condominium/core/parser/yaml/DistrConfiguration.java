@@ -15,12 +15,13 @@ import org.yaml.snakeyaml.constructor.Constructor;
 import org.yaml.snakeyaml.nodes.Tag;
 
 @SuppressWarnings("serial")
+// TODO Use dedicated classes instead of mere maps
 public class DistrConfiguration extends LinkedHashMap<String, Map<String, Map<String, Object>>> {
 
 	public static Function<Path, DistrConfiguration> parser() {
-		class LotsConfigurationConstructor extends Constructor {
+		class DistrConfigurationConstructor extends Constructor {
 
-			public LotsConfigurationConstructor(LoaderOptions loadingConfig) {
+			public DistrConfigurationConstructor(LoaderOptions loadingConfig) {
 				super(DistrConfiguration.class, loadingConfig);
 //				yamlConstructors.put(new Tag("!orFilter"), constructFromSequence(OrFilter::new));
 				addTypeDescription(new TypeDescription(GroupValue.class, new Tag("!group")));
@@ -40,7 +41,7 @@ public class DistrConfiguration extends LinkedHashMap<String, Map<String, Map<St
 //			}
 
 		}
-		Yaml yamlParser = new Yaml(new LotsConfigurationConstructor(new LoaderOptions()));
+		Yaml yamlParser = new Yaml(new DistrConfigurationConstructor(new LoaderOptions()));
 		return path -> {
 			File file = path.toFile();
 			FileInputStream inputStream;
